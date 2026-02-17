@@ -56,10 +56,27 @@ body {
   margin-left: 8px;
 }
 
+.main-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.editor-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
 .editor-area {
   display: flex;
   flex: 1;
   overflow: hidden;
+  min-height: 0;
 }
 
 .line-numbers {
@@ -107,4 +124,44 @@ body {
 
 .editor:disabled {
   opacity: 0.6;
+}
+
+/* Terminal panel */
+.terminal-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 300px;
+  flex-shrink: 0;
+  border-top: 1px solid #404040;
+  background: #1a1a1a;
+  min-height: 0;
+}
+
+.terminal-topbar {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+  background: #2d2d2d;
+  border-bottom: 1px solid #404040;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #888;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.terminal-container {
+  flex: 1;
+  overflow: hidden;
+  padding: 4px;
+  min-height: 0;
+}
+
+.terminal-container .xterm {
+  height: 100%;
+}
+
+.terminal-container .xterm-viewport,
+.terminal-container .xterm-screen {
+  height: 100% !important;
 }

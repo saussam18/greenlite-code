@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { Terminal } from "./Terminal";
 
 function App() {
   const [content, setContent] = useState("");
   const [filePath, setFilePath] = useState<string | null>(null);
   const [statusText, setStatusText] = useState("No file open");
+  const [terminalVisible, setTerminalVisible] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
 // Hello world
@@ -75,25 +77,33 @@ function App() {
         <button onClick={saveFile} disabled={!filePath}>
           Save
         </button>
+        <button onClick={() => setTerminalVisible((v) => !v)}>
+          {terminalVisible ? "Hide Terminal" : "Terminal"}
+        </button>
         <span className="filename">{statusText}</span>
       </div>
-      <div className="editor-area">
-        <div className="line-numbers" ref={lineNumbersRef}>
-          {filePath
-            ? Array.from({ length: lineCount }, (_, i) => (
-                <span key={i}>{i + 1}</span>
-              ))
-            : null}
+      <div className="main-content">
+        <div className="editor-pane">
+          <div className="editor-area">
+            <div className="line-numbers" ref={lineNumbersRef}>
+              {filePath
+                ? Array.from({ length: lineCount }, (_, i) => (
+                    <span key={i}>{i + 1}</span>
+                  ))
+                : null}
+            </div>
+            <textarea
+              ref={textareaRef}
+              className="editor"
+              placeholder="Open a file to start editing..."
+              disabled={!filePath}
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              onScroll={syncScroll}
+            />
+          </div>
         </div>
-        <textarea
-          ref={textareaRef}
-          className="editor"
-          placeholder="Open a file to start editing..."
-          disabled={!filePath}
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          onScroll={syncScroll}
-        />
+        <Terminal isVisible={terminalVisible} />
       </div>
     </div>
   );
