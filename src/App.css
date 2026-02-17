@@ -47,7 +47,7 @@ body {
   cursor: default;
 }
 
-#filename {
+.filename {
   font-size: 12px;
   color: #888;
   overflow: hidden;
@@ -56,7 +56,35 @@ body {
   margin-left: 8px;
 }
 
-#editor {
+.editor-area {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.line-numbers {
+  padding: 16px 0;
+  width: 50px;
+  background: #1e1e1e;
+  border-right: 1px solid #333;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.line-numbers span {
+  display: block;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: right;
+  padding-right: 12px;
+  color: #555;
+}
+
+.editor {
   flex: 1;
   padding: 16px;
   border: none;
@@ -68,12 +96,15 @@ body {
   font-size: 14px;
   line-height: 1.5;
   tab-size: 4;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
 }
 
-#editor::placeholder {
+.editor::placeholder {
   color: #555;
 }
 
-#editor:disabled {
+.editor:disabled {
   opacity: 0.6;
 }

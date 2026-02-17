@@ -1,6 +1,32 @@
-# Tauri + Vanilla
+# Greenlite
 
-This template should help get you started developing with Tauri in vanilla HTML, CSS and Javascript.
+A lightweight code editor built with Tauri, React, and TypeScript.
+
+## Features
+
+- Open and edit text/code files with a dark-themed UI
+- Line numbers in the code viewer
+- Keyboard shortcuts: `Cmd+O` (open), `Cmd+S` (save)
+- Supports common file types: `.ts`, `.tsx`, `.js`, `.jsx`, `.rs`, `.py`, `.json`, `.md`, and more
+
+## Tech Stack
+
+- **Frontend:** React + TypeScript, bundled with Vite
+- **Backend:** Tauri 2 (Rust)
+- **Plugins:** `tauri-plugin-fs`, `tauri-plugin-dialog`
+
+## Development
+
+```bash
+npm install
+npm run tauri dev
+```
+
+## Build
+
+```bash
+npm run tauri build
+```
 
 ## Recommended IDE Setup
 
