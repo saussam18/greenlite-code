@@ -1330,7 +1330,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "greenlite-app"
+name = "greenlite-code"
 version = "0.1.0"
 dependencies = [
  "portable-pty",
