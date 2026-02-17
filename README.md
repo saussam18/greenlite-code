@@ -1,4 +1,4 @@
-# Greenlite
+# Greenlite Code
 
 A lightweight code editor built with Tauri, React, and TypeScript.
 

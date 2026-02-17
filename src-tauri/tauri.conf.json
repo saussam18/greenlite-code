@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "greenlite-app",
+  "productName": "greenlite-code",
   "version": "0.1.0",
-  "identifier": "com.samsausville.greenlite-app",
+  "identifier": "com.samsausville.greenlite-code",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "greenlite-app",
+        "title": "greenlite-code",
         "width": 800,
         "height": 600
       }
