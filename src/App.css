@@ -12,13 +12,58 @@ body {
   color: #d4d4d4;
 }
 
-.editor-container {
+.app-container {
   display: flex;
   flex-direction: column;
   height: 100vh;
 }
 
-.toolbar {
+/* Tab bar */
+.tab-bar {
+  display: flex;
+  background: #252526;
+  border-bottom: 1px solid #404040;
+  flex-shrink: 0;
+}
+
+.tab {
+  padding: 8px 20px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #888;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.tab:hover {
+  color: #d4d4d4;
+}
+
+.tab-active {
+  color: #d4d4d4;
+  border-bottom-color: #d4d4d4;
+}
+
+.tab-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* File viewer */
+.file-viewer {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.file-toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -28,7 +73,7 @@ body {
   flex-shrink: 0;
 }
 
-.toolbar button {
+.file-toolbar button {
   padding: 6px 14px;
   border: 1px solid #555;
   border-radius: 4px;
@@ -38,11 +83,11 @@ body {
   font-size: 13px;
 }
 
-.toolbar button:hover:not(:disabled) {
+.file-toolbar button:hover:not(:disabled) {
   background: #4a4a4a;
 }
 
-.toolbar button:disabled {
+.file-toolbar button:disabled {
   opacity: 0.4;
   cursor: default;
 }
@@ -54,22 +99,6 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-left: 8px;
-}
-
-.main-content {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.editor-pane {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  overflow: hidden;
-  min-height: 0;
 }
 
 .editor-area {
@@ -130,9 +159,7 @@ body {
 .terminal-wrapper {
   display: flex;
   flex-direction: column;
-  height: 300px;
-  flex-shrink: 0;
-  border-top: 1px solid #404040;
+  flex: 1;
   background: #1a1a1a;
   min-height: 0;
 }
