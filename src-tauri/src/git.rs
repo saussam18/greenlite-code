@@ -76,6 +76,30 @@ pub fn git_info(repo_path: String) -> Result<GitInfo, String> {
     })
 }
 
+#[derive(Serialize)]
+pub struct FileDiff {
+    pub old_content: String,
+    pub new_content: String,
+}
+
+/// Return the old (HEAD) and new (working tree) content of a file for
+/// side-by-side diff rendering.
+#[tauri::command]
+pub fn git_file_diff(repo_path: String, file_path: String) -> Result<FileDiff, String> {
+    // Try to get the committed version from HEAD
+    let old_content = git_cmd(&repo_path, &["show", &format!("HEAD:{}", file_path)])
+        .unwrap_or_default();
+
+    // Read the working-tree version
+    let full_path = std::path::Path::new(&repo_path).join(&file_path);
+    let new_content = std::fs::read_to_string(&full_path).unwrap_or_default();
+
+    Ok(FileDiff {
+        old_content,
+        new_content,
+    })
+}
+
 /// Return the list of changed files (staged + unstaged) in the working tree,
 /// each with a two-character git status code and its file path.
 #[tauri::command]
@@ -87,8 +111,18 @@ pub fn git_changed_files(repo_path: String) -> Result<Vec<ChangedFile>, String> 
         .lines()
         .filter(|l| !l.is_empty())
         .map(|line| {
-            let status = line.get(..2).unwrap_or("??").trim().to_string();
-            let path = line.get(3..).unwrap_or("").to_string();
+            let raw_status = line.get(..2).unwrap_or("??").trim();
+            let status = match raw_status {
+                "??" => "A".to_string(),
+                other => other.to_string(),
+            };
+            let raw_path = line.get(2..).unwrap_or("").trim_start().to_string();
+            // For renames (R) the format is "old -> new", use the new path
+            let path = if raw_path.contains(" -> ") {
+                raw_path.split(" -> ").last().unwrap_or(&raw_path).to_string()
+            } else {
+                raw_path
+            };
             ChangedFile { status, path }
         })
         .collect();

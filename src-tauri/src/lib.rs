@@ -17,6 +17,7 @@ pub fn run() {
             pty::pty_resize,
             git::git_info,
             git::git_changed_files,
+            git::git_file_diff,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,32 +1,30 @@
 import { useState } from "react";
-import { FileViewer } from "./FileViewer";
-import { Terminal } from "./Terminal";
+import { SetupScreen } from "./SetupScreen";
+import { BuildMode } from "./BuildMode";
+import { ReviewMode } from "./ReviewMode";
+import { StatusBar } from "./StatusBar";
 
-type Tab = "editor" | "terminal";
+type Mode = "build" | "review";
 
 function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("editor");
+  const [projectPath, setProjectPath] = useState<string | null>(null);
+  const [activeMode, setActiveMode] = useState<Mode>("build");
+
+  if (!projectPath) {
+    return <SetupScreen onSelect={setProjectPath} />;
+  }
 
   return (
-    <div className="app-container">
-      <div className="tab-bar">
-        <button
-          className={`tab ${activeTab === "editor" ? "tab-active" : ""}`}
-          onClick={() => setActiveTab("editor")}
-        >
-          Editor
-        </button>
-        <button
-          className={`tab ${activeTab === "terminal" ? "tab-active" : ""}`}
-          onClick={() => setActiveTab("terminal")}
-        >
-          Terminal
-        </button>
+    <div className="flex flex-col h-screen">
+      <div className="flex flex-col flex-1 overflow-hidden min-h-0">
+        <BuildMode isVisible={activeMode === "build"} cwd={projectPath} />
+        <ReviewMode isVisible={activeMode === "review"} cwd={projectPath} />
       </div>
-      <div className="tab-content">
-        <FileViewer isVisible={activeTab === "editor"} />
-        <Terminal isVisible={activeTab === "terminal"} />
-      </div>
+      <StatusBar
+        repoPath={projectPath}
+        activeMode={activeMode}
+        onModeChange={setActiveMode}
+      />
     </div>
   );
 }
