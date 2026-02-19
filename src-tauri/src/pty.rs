@@ -41,9 +41,11 @@ pub fn pty_create(
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
     let mut cmd = CommandBuilder::new(&shell);
+
     cmd.env("TERM", "xterm-256color");
     cmd.env("SHELL_SESSIONS_DISABLE", "1");
     cmd.cwd(&cwd);
+
     if let Ok(home) = std::env::var("HOME") {
         cmd.env("HOME", &home);
     }
@@ -73,6 +75,7 @@ pub fn pty_create(
         let mut pg = pty_state.lock().map_err(|e| e.to_string())?;
         pg.master = Some(pty_pair.master);
     }
+
     {
         let mut wg = writer_state.lock().map_err(|e| e.to_string())?;
         wg.writer = Some(writer);
@@ -87,14 +90,42 @@ pub fn pty_create(
         }
     }
 
+    // 🔥 Correct UTF-8 streaming read loop
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
+        let mut pending: Vec<u8> = Vec::new();
+
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    let data = String::from_utf8_lossy(&buf[..n]).into_owned();
-                    let _ = app.emit("pty-output", data);
+                    pending.extend_from_slice(&buf[..n]);
+
+                    loop {
+                        match std::str::from_utf8(&pending) {
+                            Ok(valid_str) => {
+                                let _ = app.emit("pty-output", valid_str.to_string());
+                                pending.clear();
+                                break;
+                            }
+                            Err(err) => {
+                                let valid_up_to = err.valid_up_to();
+
+                                if valid_up_to == 0 {
+                                    // Incomplete multi-byte character — wait for next read
+                                    break;
+                                }
+
+                                let valid_part = &pending[..valid_up_to];
+
+                                if let Ok(valid_str) = std::str::from_utf8(valid_part) {
+                                    let _ = app.emit("pty-output", valid_str.to_string());
+                                }
+
+                                pending = pending[valid_up_to..].to_vec();
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -105,21 +136,32 @@ pub fn pty_create(
 
 /// Write raw input data (keystrokes) to the PTY.
 #[tauri::command]
-pub fn pty_write(state: State<'_, Mutex<WriterState>>, data: String) -> Result<(), String> {
+pub fn pty_write(
+    state: State<'_, Mutex<WriterState>>,
+    data: String,
+) -> Result<(), String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
+
     if let Some(writer) = &mut guard.writer {
         writer
             .write_all(data.as_bytes())
             .map_err(|e| e.to_string())?;
+
         writer.flush().map_err(|e| e.to_string())?;
     }
+
     Ok(())
 }
 
 /// Resize the PTY to match the frontend terminal dimensions.
 #[tauri::command]
-pub fn pty_resize(state: State<'_, Mutex<PtyState>>, rows: u16, cols: u16) -> Result<(), String> {
+pub fn pty_resize(
+    state: State<'_, Mutex<PtyState>>,
+    rows: u16,
+    cols: u16,
+) -> Result<(), String> {
     let guard = state.lock().map_err(|e| e.to_string())?;
+
     if let Some(master) = &guard.master {
         master
             .resize(PtySize {
@@ -130,5 +172,6 @@ pub fn pty_resize(state: State<'_, Mutex<PtyState>>, rows: u16, cols: u16) -> Re
             })
             .map_err(|e| e.to_string())?;
     }
+
     Ok(())
 }
