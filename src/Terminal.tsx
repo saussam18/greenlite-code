@@ -7,9 +7,10 @@ import "@xterm/xterm/css/xterm.css";
 
 interface TerminalProps {
   isVisible: boolean;
+  cwd: string;
 }
 
-export function Terminal({ isVisible }: TerminalProps) {
+export function Terminal({ isVisible, cwd }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -61,7 +62,7 @@ export function Terminal({ isVisible }: TerminalProps) {
 
     const { rows, cols } = term;
 
-    await invoke("pty_create", { rows, cols });
+    await invoke("pty_create", { rows, cols, cwd });
 
     unlistenRef.current = await listen<string>("pty-output", (event) => {
       term.write(event.payload);
@@ -74,7 +75,7 @@ export function Terminal({ isVisible }: TerminalProps) {
     term.onResize(({ rows, cols }) => {
       invoke("pty_resize", { rows, cols }).catch(console.error);
     });
-  }, []);
+  }, [cwd]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -112,13 +113,13 @@ export function Terminal({ isVisible }: TerminalProps) {
 
   return (
     <div
-      className="terminal-wrapper"
+      className="flex flex-col flex-1 bg-[#1a1a1a] min-h-0"
       style={{ display: isVisible ? "flex" : "none" }}
     >
-      <div className="terminal-topbar">
+      <div className="flex items-center px-3 py-1 bg-[#2d2d2d] border-b border-[#404040] text-[11px] tracking-wider text-[#888] shrink-0 select-none">
         <span>TERMINAL</span>
       </div>
-      <div ref={containerRef} className="terminal-container" />
+      <div ref={containerRef} className="terminal-container flex-1 overflow-hidden p-1 min-h-0" />
     </div>
   );
 }
