@@ -18,13 +18,37 @@ interface Comment {
   filePath: string;
   startLine: number;
   endLine: number;
+  startCol: number;  // 0-based column in startLine
+  endCol: number;    // 0-based column in endLine (exclusive)
   text: string;
   createdAt: string;
+  resolved: boolean;
 }
+
+interface SelectionAnchor {
+  line: number;
+  col: number;
+}
+
+interface CommentsData {
+  commitHash: string;
+  comments: Comment[];
+}
+
+interface GitInfo {
+  branch: string;
+  ahead: number;
+  behind: number;
+  last_commit_message: string;
+  last_commit_hash: string;
+}
+
+type Mode = "build" | "review";
 
 interface ReviewModeProps {
   isVisible: boolean;
   cwd: string;
+  onModeChange: (mode: Mode) => void;
 }
 
 // --- Tree helpers ---
@@ -231,48 +255,205 @@ function commentsKey(repoPath: string): string {
   return `comments:${repoPath}`;
 }
 
-function loadComments(repoPath: string): Comment[] {
+function loadCommentsData(repoPath: string): CommentsData {
   try {
     const raw = localStorage.getItem(commentsKey(repoPath));
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return { commitHash: "", comments: [] };
+    const parsed = JSON.parse(raw);
+    // Migrate old format (plain array) to new CommentsData format
+    if (Array.isArray(parsed)) {
+      const migrated: Comment[] = parsed.map((c: Partial<Comment> & { id: string; side: "old" | "new"; filePath: string; startLine: number; endLine: number; text: string; createdAt: string }) => ({
+        ...c,
+        resolved: c.resolved ?? false,
+        startCol: c.startCol ?? 0,
+        endCol: c.endCol ?? Infinity,
+      }));
+      return { commitHash: "", comments: migrated };
+    }
+    // Ensure all comments have resolved + column fields
+    const data = parsed as CommentsData;
+    data.comments = data.comments.map((c: Partial<Comment> & { id: string; side: "old" | "new"; filePath: string; startLine: number; endLine: number; text: string; createdAt: string }) => ({
+      ...c,
+      resolved: c.resolved ?? false,
+      startCol: c.startCol ?? 0,
+      endCol: c.endCol ?? Infinity,
+    }));
+    return data;
   } catch {
-    return [];
+    return { commitHash: "", comments: [] };
   }
 }
 
-function saveComments(repoPath: string, comments: Comment[]): void {
-  localStorage.setItem(commentsKey(repoPath), JSON.stringify(comments));
+function saveCommentsData(repoPath: string, data: CommentsData): void {
+  localStorage.setItem(commentsKey(repoPath), JSON.stringify(data));
+}
+
+// --- Inline comment thread ---
+
+function CommentThread({
+  comment,
+  onResolve,
+  onUnresolve,
+  onDelete,
+}: {
+  comment: Comment;
+  onResolve: (id: string) => void;
+  onUnresolve: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  const borderColor = comment.resolved ? "#555" : "#4e9a06";
+  const opacity = comment.resolved ? "opacity-60" : "";
+
+  return (
+    <div
+      className={`mx-[50px] my-1 border rounded-md bg-[#2d2d30] ${opacity}`}
+      style={{ borderColor }}
+    >
+      {/* Collapse toggle header */}
+      <div
+        className="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer hover:bg-white/[0.03] select-none"
+        onClick={() => setCollapsed(!collapsed)}
+      >
+        <span className="text-[10px] text-[#888] w-3 shrink-0">{collapsed ? "▶" : "▼"}</span>
+        {comment.resolved && (
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[#888] bg-[#3c3c3c] rounded px-1.5 py-0.5">
+            Resolved
+          </span>
+        )}
+        <span className="text-[12px] text-[#999] truncate flex-1">
+          {collapsed ? comment.text : (() => {
+            const hasCol = comment.startCol !== 0 || comment.endCol !== Infinity;
+            if (hasCol) {
+              return `L${comment.startLine}:${comment.startCol}–L${comment.endLine}:${comment.endCol}`;
+            }
+            return `Lines ${comment.startLine}–${comment.endLine}`;
+          })()}
+        </span>
+      </div>
+      {!collapsed && (
+        <div className="px-3 pb-2">
+          <div className="text-[13px] text-[#d4d4d4] whitespace-pre-wrap">
+            {comment.text}
+          </div>
+          <div className="text-[11px] text-[#666] mt-1">
+            {(() => {
+              const hasCol = comment.startCol !== 0 || comment.endCol !== Infinity;
+              if (hasCol) {
+                return `L${comment.startLine}:${comment.startCol}–L${comment.endLine}:${comment.endCol}`;
+              }
+              return `Lines ${comment.startLine}–${comment.endLine}`;
+            })()} &middot;{" "}
+            {new Date(comment.createdAt).toLocaleString()}
+          </div>
+          <div className="flex gap-1.5 mt-2">
+            {comment.resolved ? (
+              <button
+                className="px-2 py-0.5 border border-[#555] rounded-sm bg-transparent text-[#4e9a06] cursor-pointer text-[11px] hover:bg-[rgba(78,154,6,0.15)]"
+                onClick={() => onUnresolve(comment.id)}
+              >
+                Unresolve
+              </button>
+            ) : (
+              <button
+                className="px-2 py-0.5 border border-[#4e9a06] rounded-sm bg-transparent text-[#4e9a06] cursor-pointer text-[11px] hover:bg-[rgba(78,154,6,0.15)]"
+                onClick={() => onResolve(comment.id)}
+              >
+                Resolve
+              </button>
+            )}
+            <button
+              className="px-2 py-0.5 border border-[#555] rounded-sm bg-transparent text-[#f44747] cursor-pointer text-[11px] hover:bg-[rgba(244,71,71,0.15)]"
+              onClick={() => onDelete(comment.id)}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // --- Main component ---
 
-export function ReviewMode({ isVisible, cwd }: ReviewModeProps) {
+export function ReviewMode({ isVisible, cwd, onModeChange }: ReviewModeProps) {
   const [files, setFiles] = useState<ChangedFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
   const [diff, setDiff] = useState<{ left: DiffLine[]; right: DiffLine[] } | null>(null);
   const [plainContent, setPlainContent] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [storedCommitHash, setStoredCommitHash] = useState("");
 
-  // Selection state
+  // Selection state (column-aware)
   const [selectingSide, setSelectingSide] = useState<"old" | "new" | null>(null);
-  const [selectionStart, setSelectionStart] = useState<number | null>(null);
-  const [selectionEnd, setSelectionEnd] = useState<number | null>(null);
+  const [selectionStart, setSelectionStart] = useState<SelectionAnchor | null>(null);
+  const [selectionEnd, setSelectionEnd] = useState<SelectionAnchor | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
+
+  // Measure monospace char width for column calculation
+  const charWidthRef = useRef<number>(0);
+  const measureRef = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (isVisible && measureRef.current) {
+      charWidthRef.current = measureRef.current.getBoundingClientRect().width;
+    }
+  }, [isVisible]);
 
   // Comment input
   const [commentInput, setCommentInput] = useState("");
   const [showCommentInput, setShowCommentInput] = useState(false);
-  const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+
+  // Track which inline threads are collapsed
+  const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(new Set());
 
   const pollRef = useRef<number | null>(null);
 
   // Load comments from localStorage
   useEffect(() => {
-    setComments(loadComments(cwd));
+    const data = loadCommentsData(cwd);
+    setComments(data.comments);
+    setStoredCommitHash(data.commitHash);
   }, [cwd]);
 
-  // Poll for changed files
+  // Save helper
+  const persistComments = useCallback(
+    (updatedComments: Comment[], commitHash?: string) => {
+      const hash = commitHash ?? storedCommitHash;
+      setComments(updatedComments);
+      saveCommentsData(cwd, { commitHash: hash, comments: updatedComments });
+    },
+    [cwd, storedCommitHash]
+  );
+
+  // Fetch git info to track commit hash changes
+  const checkCommitHash = useCallback(() => {
+    invoke<GitInfo>("git_info", { repoPath: cwd })
+      .then((info) => {
+        const currentHash = info.last_commit_hash;
+        if (!currentHash) return;
+
+        setStoredCommitHash((prevHash) => {
+          if (prevHash && prevHash !== currentHash) {
+            // Commit hash changed — purge resolved comments
+            setComments((prev) => {
+              const kept = prev.filter((c) => !c.resolved);
+              saveCommentsData(cwd, { commitHash: currentHash, comments: kept });
+              return kept;
+            });
+          } else if (!prevHash) {
+            // First load — just store the hash
+            const data = loadCommentsData(cwd);
+            saveCommentsData(cwd, { commitHash: currentHash, comments: data.comments });
+          }
+          return currentHash;
+        });
+      })
+      .catch(() => {});
+  }, [cwd]);
+
+  // Poll for changed files + commit hash
   const fetchFiles = useCallback(() => {
     invoke<ChangedFile[]>("git_changed_files", { repoPath: cwd })
       .then(setFiles)
@@ -282,11 +463,15 @@ export function ReviewMode({ isVisible, cwd }: ReviewModeProps) {
   useEffect(() => {
     if (!isVisible) return;
     fetchFiles();
-    pollRef.current = window.setInterval(fetchFiles, 3000);
+    checkCommitHash();
+    pollRef.current = window.setInterval(() => {
+      fetchFiles();
+      checkCommitHash();
+    }, 3000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [isVisible, fetchFiles]);
+  }, [isVisible, fetchFiles, checkCommitHash]);
 
   // Load diff or plain content when file selected
   useEffect(() => {
@@ -318,22 +503,29 @@ export function ReviewMode({ isVisible, cwd }: ReviewModeProps) {
     setSelectionEnd(null);
     setShowCommentInput(false);
     setCommentInput("");
-    setActiveCommentId(null);
   };
 
-  const handleLineMouseDown = (side: "old" | "new", lineNum: number) => {
+  const getColFromEvent = (e: React.MouseEvent, codeSpan: HTMLElement, lineText: string): number => {
+    const charWidth = charWidthRef.current;
+    if (!charWidth) return 0;
+    const rect = codeSpan.getBoundingClientRect();
+    const paddingLeft = parseFloat(getComputedStyle(codeSpan).paddingLeft) || 0;
+    const col = Math.floor((e.clientX - rect.left - paddingLeft) / charWidth);
+    return Math.max(0, Math.min(col, lineText.length));
+  };
+
+  const handleLineMouseDown = (side: "old" | "new", lineNum: number, col: number) => {
     setIsSelecting(true);
     setSelectingSide(side);
-    setSelectionStart(lineNum);
-    setSelectionEnd(lineNum);
+    setSelectionStart({ line: lineNum, col });
+    setSelectionEnd({ line: lineNum, col });
     setShowCommentInput(false);
     setCommentInput("");
-    setActiveCommentId(null);
   };
 
-  const handleLineMouseEnter = (side: "old" | "new", lineNum: number | null) => {
-    if (isSelecting && side === selectingSide && lineNum != null) {
-      setSelectionEnd(lineNum);
+  const handleLineMouseMove = (side: "old" | "new", lineNum: number, col: number) => {
+    if (isSelecting && side === selectingSide) {
+      setSelectionEnd({ line: lineNum, col });
     }
   };
 
@@ -346,11 +538,41 @@ export function ReviewMode({ isVisible, cwd }: ReviewModeProps) {
     return () => document.removeEventListener("mouseup", handleMouseUp);
   });
 
-  const isLineSelected = (side: "old" | "new", lineNum: number): boolean => {
-    if (selectingSide !== side || selectionStart === null || selectionEnd === null) return false;
-    const min = Math.min(selectionStart, selectionEnd);
-    const max = Math.max(selectionStart, selectionEnd);
-    return lineNum >= min && lineNum <= max;
+  // Normalized selection: earlier anchor first
+  const selNorm: { start: SelectionAnchor; end: SelectionAnchor } | null = useMemo(() => {
+    if (!selectionStart || !selectionEnd) return null;
+    const a = selectionStart;
+    const b = selectionEnd;
+    if (a.line < b.line || (a.line === b.line && a.col <= b.col)) {
+      return { start: a, end: b };
+    }
+    return { start: b, end: a };
+  }, [selectionStart, selectionEnd]);
+
+  const getLineHighlight = (side: "old" | "new", lineNum: number, lineLength: number): { startCol: number; endCol: number } | null => {
+    if (selectingSide !== side || !selNorm) return null;
+    const { start, end } = selNorm;
+    if (lineNum < start.line || lineNum > end.line) return null;
+    if (start.line === end.line) {
+      // Single-point click (no drag yet) → highlight whole line
+      if (start.col === end.col) return { startCol: 0, endCol: lineLength };
+      // Single-line partial selection
+      return { startCol: start.col, endCol: end.col };
+    }
+    // Multi-line selection
+    if (lineNum === start.line) return { startCol: start.col, endCol: lineLength };
+    if (lineNum === end.line) return { startCol: 0, endCol: end.col };
+    return { startCol: 0, endCol: lineLength };
+  };
+
+  const getCommentHighlight = (side: "old" | "new", lineNum: number, lineLength: number, comment: Comment): { startCol: number; endCol: number } | null => {
+    if (comment.side !== side || lineNum < comment.startLine || lineNum > comment.endLine) return null;
+    if (comment.startLine === comment.endLine) {
+      return { startCol: comment.startCol, endCol: Math.min(comment.endCol, lineLength) };
+    }
+    if (lineNum === comment.startLine) return { startCol: comment.startCol, endCol: lineLength };
+    if (lineNum === comment.endLine) return { startCol: 0, endCol: Math.min(comment.endCol, lineLength) };
+    return { startCol: 0, endCol: lineLength };
   };
 
   const fileComments = selectedFile
@@ -363,6 +585,11 @@ export function ReviewMode({ isVisible, cwd }: ReviewModeProps) {
     );
   };
 
+  // Get all comments that end at a specific line on a specific side
+  const getCommentsEndingAtLine = (side: "old" | "new", lineNum: number): Comment[] => {
+    return fileComments.filter((c) => c.side === side && c.endLine === lineNum);
+  };
+
   const handleAddComment = () => setShowCommentInput(true);
 
   const handleSubmitComment = () => {
@@ -370,46 +597,90 @@ export function ReviewMode({ isVisible, cwd }: ReviewModeProps) {
       !commentInput.trim() ||
       !selectedFile ||
       !selectingSide ||
-      selectionStart === null ||
-      selectionEnd === null
+      !selNorm
     )
       return;
 
+    // If start and end are the same point (click, no drag), treat as whole-line
+    const isSinglePoint = selNorm.start.line === selNorm.end.line && selNorm.start.col === selNorm.end.col;
     const newComment: Comment = {
       id: crypto.randomUUID(),
       side: selectingSide,
       filePath: selectedFile,
-      startLine: Math.min(selectionStart, selectionEnd),
-      endLine: Math.max(selectionStart, selectionEnd),
+      startLine: selNorm.start.line,
+      endLine: selNorm.end.line,
+      startCol: isSinglePoint ? 0 : selNorm.start.col,
+      endCol: isSinglePoint ? Infinity : selNorm.end.col,
       text: commentInput.trim(),
       createdAt: new Date().toISOString(),
+      resolved: false,
     };
 
-    const updated = [...comments, newComment];
-    setComments(updated);
-    saveComments(cwd, updated);
+    persistComments([...comments, newComment]);
     clearSelection();
   };
 
   const handleDeleteComment = (id: string) => {
-    const updated = comments.filter((c) => c.id !== id);
-    setComments(updated);
-    saveComments(cwd, updated);
-    setActiveCommentId(null);
+    persistComments(comments.filter((c) => c.id !== id));
   };
 
-  const handleCommentMarkerClick = (e: React.MouseEvent, comment: Comment) => {
+  const handleResolveComment = (id: string) => {
+    persistComments(
+      comments.map((c) => (c.id === id ? { ...c, resolved: true } : c))
+    );
+  };
+
+  const handleUnresolveComment = (id: string) => {
+    persistComments(
+      comments.map((c) => (c.id === id ? { ...c, resolved: false } : c))
+    );
+  };
+
+  const handleGutterDotClick = (e: React.MouseEvent, comment: Comment) => {
     e.stopPropagation();
-    setActiveCommentId(activeCommentId === comment.id ? null : comment.id);
-    clearSelectionOnly();
+    setCollapsedThreads((prev) => {
+      const next = new Set(prev);
+      if (next.has(comment.id)) {
+        next.delete(comment.id);
+      } else {
+        next.add(comment.id);
+      }
+      return next;
+    });
   };
 
-  const clearSelectionOnly = () => {
-    setSelectingSide(null);
-    setSelectionStart(null);
-    setSelectionEnd(null);
-    setShowCommentInput(false);
-    setCommentInput("");
+  // Send open comments to Claude via PTY
+  const openComments = comments.filter((c) => !c.resolved);
+
+  const handleSendToClaude = () => {
+    if (openComments.length === 0) return;
+
+    // Group open comments by file
+    const grouped = new Map<string, Comment[]>();
+    for (const c of openComments) {
+      const existing = grouped.get(c.filePath) || [];
+      existing.push(c);
+      grouped.set(c.filePath, existing);
+    }
+
+    let prompt = "Please fix the following review comments:\n";
+    for (const [filePath, fileComments] of grouped) {
+      for (const c of fileComments) {
+        const hasCol = c.startCol !== 0 || c.endCol !== Infinity;
+        let lineRange: string;
+        if (c.startLine === c.endLine) {
+          lineRange = hasCol ? `line ${c.startLine}:${c.startCol}-${c.endCol}` : `line ${c.startLine}`;
+        } else {
+          lineRange = hasCol
+            ? `lines ${c.startLine}:${c.startCol}-${c.endLine}:${c.endCol}`
+            : `lines ${c.startLine}-${c.endLine}`;
+        }
+        prompt += `\n## ${filePath} (${lineRange}, ${c.side})\n${c.text}\n`;
+      }
+    }
+
+    invoke("pty_write", { data: prompt }).catch(console.error);
+    onModeChange("build");
   };
 
   // Escape key
@@ -422,14 +693,9 @@ export function ReviewMode({ isVisible, cwd }: ReviewModeProps) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isVisible]);
 
-  const selMin =
-    selectionStart !== null && selectionEnd !== null
-      ? Math.min(selectionStart, selectionEnd)
-      : null;
-  const selMax =
-    selectionStart !== null && selectionEnd !== null
-      ? Math.max(selectionStart, selectionEnd)
-      : null;
+  // Line range for popover positioning
+  const selMin = selNorm ? selNorm.start.line : null;
+  const selMax = selNorm ? selNorm.end.line : null;
 
   const tree = buildTree(files);
   const lang: Language = useMemo(
@@ -446,6 +712,44 @@ export function ReviewMode({ isVisible, cwd }: ReviewModeProps) {
     ));
   };
 
+  const renderInlineThread = (side: "old" | "new", lineNum: number) => {
+    const endingComments = getCommentsEndingAtLine(side, lineNum);
+    if (endingComments.length === 0) return null;
+
+    return endingComments.map((comment) => {
+      if (collapsedThreads.has(comment.id)) return null;
+      return (
+        <CommentThread
+          key={comment.id}
+          comment={comment}
+          onResolve={handleResolveComment}
+          onUnresolve={handleUnresolveComment}
+          onDelete={handleDeleteComment}
+        />
+      );
+    });
+  };
+
+  const renderHighlightOverlay = (
+    highlight: { startCol: number; endCol: number } | null,
+    color: string,
+    lineLength: number
+  ) => {
+    if (!highlight || (highlight.startCol === 0 && highlight.endCol >= lineLength)) return null;
+    // The code span has pl-2 (0.5rem padding). Absolute positioning starts at the
+    // padding edge, but text starts at the content edge, so offset by the padding.
+    return (
+      <span
+        className="absolute top-0 bottom-0 pointer-events-none"
+        style={{
+          left: `calc(0.5rem + ${highlight.startCol}ch)`,
+          width: `${Math.min(highlight.endCol, lineLength) - highlight.startCol}ch`,
+          backgroundColor: color,
+        }}
+      />
+    );
+  };
+
   const renderPlainPane = (label: string, content: string, side: "old" | "new") => {
     const lines = content.split("\n");
     return (
@@ -454,56 +758,72 @@ export function ReviewMode({ isVisible, cwd }: ReviewModeProps) {
           {label}
         </div>
         <pre className="m-0 p-0 bg-transparent">
-          <code className="block">
+          <code className="block w-max min-w-full">
             {lines.map((line, i) => {
               const lineNum = i + 1;
-              const selected = isLineSelected(side, lineNum);
+              const lineLength = line.length;
+              const selHighlight = getLineHighlight(side, lineNum, lineLength);
               const comment = findComment(side, lineNum);
-              const isFirstCommentLine = comment && comment.startLine === lineNum;
+              const commentHL = comment ? getCommentHighlight(side, lineNum, lineLength, comment) : null;
+
+              // Determine bg: full-line fallback for whole-line highlights, overlay for partial
+              const isFullLineSelection = selHighlight && selHighlight.startCol === 0 && selHighlight.endCol >= lineLength;
+              const isFullLineComment = commentHL && commentHL.startCol === 0 && commentHL.endCol >= lineLength;
 
               let bgClass = "";
-              if (selected) bgClass = "!bg-[rgba(38,79,120,0.4)]";
-              else if (comment) bgClass = "bg-[rgba(78,154,6,0.08)]";
+              if (selHighlight && isFullLineSelection) bgClass = "!bg-[rgba(38,79,120,0.4)]";
+              else if (!selHighlight && commentHL && !comment!.resolved && isFullLineComment) bgClass = "bg-[rgba(78,154,6,0.08)]";
+              else if (!selHighlight && commentHL && comment!.resolved && isFullLineComment) bgClass = "bg-[rgba(128,128,128,0.05)]";
+
+              const gutterDotColor = comment
+                ? comment.resolved
+                  ? "text-[#666]"
+                  : "text-[#4e9a06]"
+                : "";
+              const gutterDotHover = comment
+                ? comment.resolved
+                  ? "hover:text-[#999]"
+                  : "hover:text-[#73d216]"
+                : "";
 
               return (
-                <div
-                  key={i}
-                  className={`flex items-stretch min-h-[21px] leading-[21px] select-none cursor-pointer hover:bg-white/[0.03] ${bgClass}`}
-                  onMouseDown={() => handleLineMouseDown(side, lineNum)}
-                  onMouseEnter={() => handleLineMouseEnter(side, lineNum)}
-                >
-                  <span className="inline-flex items-center justify-end w-[50px] min-w-[50px] pr-2 font-mono text-[13px] text-[#555] text-right shrink-0 gap-1">
-                    {comment ? (
-                      <span
-                        className="text-[#4e9a06] cursor-pointer text-[10px] shrink-0 hover:text-[#73d216]"
-                        onClick={(e) => handleCommentMarkerClick(e, comment)}
-                        title={comment.text}
-                      >
-                        ●
-                      </span>
-                    ) : null}
-                    {lineNum}
-                  </span>
-                  <span className="flex-1 pl-2 font-mono text-[13px] whitespace-pre">
-                    {line ? renderHighlightedLine(line) : " "}
-                  </span>
-
-                  {isFirstCommentLine && activeCommentId === comment!.id && (
-                    <div className="absolute right-4 z-10 bg-[#2d2d30] border border-[#4e9a06] rounded-md px-3.5 py-2.5 max-w-[360px] min-w-[200px] shadow-[0_4px_16px_rgba(0,0,0,0.4)]">
-                      <div className="text-[13px] text-[#d4d4d4] whitespace-pre-wrap mb-1.5">
-                        {comment!.text}
-                      </div>
-                      <div className="text-[11px] text-[#777] mb-1.5">
-                        Lines {comment!.startLine}–{comment!.endLine}
-                      </div>
-                      <button
-                        className="px-2 py-0.5 border border-[#555] rounded-sm bg-transparent text-[#f44747] cursor-pointer text-[11px] hover:bg-[rgba(244,71,71,0.15)]"
-                        onClick={() => handleDeleteComment(comment!.id)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  )}
+                <div key={i}>
+                  <div
+                    className={`flex items-stretch min-h-[21px] leading-[21px] select-none cursor-text hover:bg-white/[0.03] ${bgClass}`}
+                    onMouseDown={(e) => {
+                      const codeSpan = e.currentTarget.querySelector('[data-code-span]') as HTMLElement | null;
+                      const col = codeSpan ? getColFromEvent(e, codeSpan, line) : 0;
+                      handleLineMouseDown(side, lineNum, col);
+                    }}
+                    onMouseMove={(e) => {
+                      const codeSpan = e.currentTarget.querySelector('[data-code-span]') as HTMLElement | null;
+                      const col = codeSpan ? getColFromEvent(e, codeSpan, line) : 0;
+                      handleLineMouseMove(side, lineNum, col);
+                    }}
+                  >
+                    <span className="inline-flex items-center justify-end w-[50px] min-w-[50px] pr-2 font-mono text-[13px] text-[#555] text-right shrink-0 gap-1">
+                      {comment ? (
+                        <span
+                          className={`${gutterDotColor} cursor-pointer text-[14px] leading-none shrink-0 ${gutterDotHover}`}
+                          onClick={(e) => handleGutterDotClick(e, comment)}
+                          title={comment.text}
+                        >
+                          ●
+                        </span>
+                      ) : null}
+                      {lineNum}
+                    </span>
+                    <span data-code-span className="flex-1 pl-2 font-mono text-[13px] whitespace-pre relative">
+                      {selHighlight && !isFullLineSelection && renderHighlightOverlay(selHighlight, "rgba(38,79,120,0.4)", lineLength)}
+                      {!selHighlight && commentHL && !isFullLineComment && renderHighlightOverlay(
+                        commentHL,
+                        comment!.resolved ? "rgba(128,128,128,0.05)" : "rgba(78,154,6,0.08)",
+                        lineLength
+                      )}
+                      {line ? renderHighlightedLine(line) : " "}
+                    </span>
+                  </div>
+                  {renderInlineThread(side, lineNum)}
                 </div>
               );
             })}
@@ -511,18 +831,18 @@ export function ReviewMode({ isVisible, cwd }: ReviewModeProps) {
         </pre>
 
         {/* Add comment popover */}
-        {selectingSide === side && selMin !== null && selMax !== null && !isSelecting && (
+        {selectingSide === side && selMin !== null && selMax !== null && !isSelecting && selNorm && (
           <div
-            className="absolute right-4 z-20"
-            style={{ top: `${(selMax) * 21 + 28}px` }}
+            className="absolute z-20"
+            style={{ top: `${(selMax) * 21 + 28}px`, left: `min(calc(50px + 0.5rem + ${selNorm.end.col}ch), calc(100% - ${showCommentInput ? '21rem' : '2.5rem'}))` }}
           >
             {!showCommentInput ? (
               <button
-                className="px-3 py-1 border border-[#4e9a06] rounded bg-[#2d2d30] text-[#4e9a06] cursor-pointer text-xs font-semibold whitespace-nowrap hover:bg-[#3c3c3c]"
+                className="w-7 h-7 flex items-center justify-center border border-[#4e9a06] rounded bg-[#2d2d30] text-[#4e9a06] cursor-pointer text-[16px] hover:bg-[#3c3c3c]"
                 onClick={handleAddComment}
+                title={`Comment on L${selMin}${selMin !== selMax ? `–L${selMax}` : ""}`}
               >
-                + Comment (L{selMin}
-                {selMin !== selMax ? `–L${selMax}` : ""})
+                +
               </button>
             ) : (
               <div className="bg-[#2d2d30] border border-[#4e9a06] rounded-md p-2 w-80 shadow-[0_4px_16px_rgba(0,0,0,0.4)]">
@@ -568,7 +888,7 @@ export function ReviewMode({ isVisible, cwd }: ReviewModeProps) {
           {side === "old" ? "Before" : "After"}
         </div>
         <pre className="m-0 p-0 bg-transparent">
-          <code className="block">
+          <code className="block w-max min-w-full">
             {lines.map((line, i) => {
               const lineNum = side === "old" ? line.oldLineNum : line.newLineNum;
               const isSpacer =
@@ -576,62 +896,79 @@ export function ReviewMode({ isVisible, cwd }: ReviewModeProps) {
                 (side === "new" && line.type === "removed");
               const isRemoved = side === "old" && line.type === "removed";
               const isAdded = side === "new" && line.type === "added";
-              const selected = lineNum != null && isLineSelected(side, lineNum);
+              const lineLength = line.text.length;
+              const selHighlight = lineNum != null ? getLineHighlight(side, lineNum, lineLength) : null;
               const comment = lineNum != null ? findComment(side, lineNum) : undefined;
-              const isFirstCommentLine = comment && comment.startLine === lineNum;
+              const commentHL = comment ? getCommentHighlight(side, lineNum!, lineLength, comment) : null;
+
+              const isFullLineSelection = selHighlight && selHighlight.startCol === 0 && selHighlight.endCol >= lineLength;
+              const isFullLineComment = commentHL && commentHL.startCol === 0 && commentHL.endCol >= lineLength;
 
               let bgClass = "";
-              if (selected) bgClass = "!bg-[rgba(38,79,120,0.4)]";
-              else if (comment) bgClass = "bg-[rgba(78,154,6,0.08)]";
+              if (selHighlight && isFullLineSelection) bgClass = "!bg-[rgba(38,79,120,0.4)]";
+              else if (!selHighlight && commentHL && !comment!.resolved && isFullLineComment) bgClass = "bg-[rgba(78,154,6,0.08)]";
+              else if (!selHighlight && commentHL && comment!.resolved && isFullLineComment) bgClass = "bg-[rgba(128,128,128,0.05)]";
               else if (isRemoved) bgClass = "bg-[rgba(244,71,71,0.18)]";
               else if (isAdded) bgClass = "bg-[rgba(106,153,85,0.18)]";
 
-              return (
-                <div
-                  key={i}
-                  className={`flex items-stretch min-h-[21px] leading-[21px] select-none ${
-                    isSpacer ? "bg-[rgba(128,128,128,0.04)]" : ""
-                  } ${bgClass} ${lineNum != null ? "cursor-pointer hover:bg-white/[0.03]" : ""}`}
-                  onMouseDown={() => lineNum != null && handleLineMouseDown(side, lineNum)}
-                  onMouseEnter={() => handleLineMouseEnter(side, lineNum ?? null)}
-                >
-                  <span className="inline-flex items-center justify-end w-[50px] min-w-[50px] pr-2 font-mono text-[13px] text-[#555] text-right shrink-0 gap-1">
-                    {comment ? (
-                      <span
-                        className="text-[#4e9a06] cursor-pointer text-[10px] shrink-0 hover:text-[#73d216]"
-                        onClick={(e) => handleCommentMarkerClick(e, comment)}
-                        title={comment.text}
-                      >
-                        ●
-                      </span>
-                    ) : null}
-                    {lineNum ?? ""}
-                  </span>
-                  <span
-                    className={`flex-1 pl-2 font-mono text-[13px] whitespace-pre ${
-                      isSpacer ? "text-transparent" : ""
-                    }`}
-                  >
-                    {isSpacer ? " " : line.text ? renderHighlightedLine(line.text) : " "}
-                  </span>
+              const gutterDotColor = comment
+                ? comment.resolved
+                  ? "text-[#666]"
+                  : "text-[#4e9a06]"
+                : "";
+              const gutterDotHover = comment
+                ? comment.resolved
+                  ? "hover:text-[#999]"
+                  : "hover:text-[#73d216]"
+                : "";
 
-                  {isFirstCommentLine && activeCommentId === comment!.id && (
-                    <div className="absolute right-4 z-10 bg-[#2d2d30] border border-[#4e9a06] rounded-md px-3.5 py-2.5 max-w-[360px] min-w-[200px] shadow-[0_4px_16px_rgba(0,0,0,0.4)]">
-                      <div className="text-[13px] text-[#d4d4d4] whitespace-pre-wrap mb-1.5">
-                        {comment!.text}
-                      </div>
-                      <div className="text-[11px] text-[#777] mb-1.5">
-                        {side === "old" ? "Before" : "After"} — Lines {comment!.startLine}–
-                        {comment!.endLine}
-                      </div>
-                      <button
-                        className="px-2 py-0.5 border border-[#555] rounded-sm bg-transparent text-[#f44747] cursor-pointer text-[11px] hover:bg-[rgba(244,71,71,0.15)]"
-                        onClick={() => handleDeleteComment(comment!.id)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  )}
+              return (
+                <div key={i}>
+                  <div
+                    className={`flex items-stretch min-h-[21px] leading-[21px] select-none ${
+                      isSpacer ? "bg-[rgba(128,128,128,0.04)]" : ""
+                    } ${bgClass} ${lineNum != null ? "cursor-text hover:bg-white/[0.03]" : ""}`}
+                    onMouseDown={(e) => {
+                      if (lineNum == null) return;
+                      const codeSpan = e.currentTarget.querySelector('[data-code-span]') as HTMLElement | null;
+                      const col = codeSpan ? getColFromEvent(e, codeSpan, line.text) : 0;
+                      handleLineMouseDown(side, lineNum, col);
+                    }}
+                    onMouseMove={(e) => {
+                      if (lineNum == null) return;
+                      const codeSpan = e.currentTarget.querySelector('[data-code-span]') as HTMLElement | null;
+                      const col = codeSpan ? getColFromEvent(e, codeSpan, line.text) : 0;
+                      handleLineMouseMove(side, lineNum, col);
+                    }}
+                  >
+                    <span className="inline-flex items-center justify-end w-[50px] min-w-[50px] pr-2 font-mono text-[13px] text-[#555] text-right shrink-0 gap-1">
+                      {comment ? (
+                        <span
+                          className={`${gutterDotColor} cursor-pointer text-[14px] leading-none shrink-0 ${gutterDotHover}`}
+                          onClick={(e) => handleGutterDotClick(e, comment)}
+                          title={comment.text}
+                        >
+                          ●
+                        </span>
+                      ) : null}
+                      {lineNum ?? ""}
+                    </span>
+                    <span
+                      data-code-span
+                      className={`flex-1 pl-2 font-mono text-[13px] whitespace-pre relative ${
+                        isSpacer ? "text-transparent" : ""
+                      }`}
+                    >
+                      {selHighlight && !isFullLineSelection && renderHighlightOverlay(selHighlight, "rgba(38,79,120,0.4)", lineLength)}
+                      {!selHighlight && commentHL && !isFullLineComment && renderHighlightOverlay(
+                        commentHL,
+                        comment!.resolved ? "rgba(128,128,128,0.05)" : "rgba(78,154,6,0.08)",
+                        lineLength
+                      )}
+                      {isSpacer ? " " : line.text ? renderHighlightedLine(line.text) : " "}
+                    </span>
+                  </div>
+                  {lineNum != null && renderInlineThread(side, lineNum)}
                 </div>
               );
             })}
@@ -639,18 +976,18 @@ export function ReviewMode({ isVisible, cwd }: ReviewModeProps) {
         </pre>
 
         {/* Add comment popover */}
-        {selectingSide === side && selMin !== null && selMax !== null && !isSelecting && (
+        {selectingSide === side && selMin !== null && selMax !== null && !isSelecting && selNorm && (
           <div
-            className="absolute right-4 z-20"
-            style={{ top: `${(selMax) * 21 + 28}px` }}
+            className="absolute z-20"
+            style={{ top: `${(selMax) * 21 + 28}px`, left: `min(calc(50px + 0.5rem + ${selNorm.end.col}ch), calc(100% - ${showCommentInput ? '21rem' : '2.5rem'}))` }}
           >
             {!showCommentInput ? (
               <button
-                className="px-3 py-1 border border-[#4e9a06] rounded bg-[#2d2d30] text-[#4e9a06] cursor-pointer text-xs font-semibold whitespace-nowrap hover:bg-[#3c3c3c]"
+                className="w-7 h-7 flex items-center justify-center border border-[#4e9a06] rounded bg-[#2d2d30] text-[#4e9a06] cursor-pointer text-[16px] hover:bg-[#3c3c3c]"
                 onClick={handleAddComment}
+                title={`Comment on L${selMin}${selMin !== selMax ? `–L${selMax}` : ""}`}
               >
-                + Comment (L{selMin}
-                {selMin !== selMax ? `–L${selMax}` : ""})
+                +
               </button>
             ) : (
               <div className="bg-[#2d2d30] border border-[#4e9a06] rounded-md p-2 w-80 shadow-[0_4px_16px_rgba(0,0,0,0.4)]">
@@ -694,6 +1031,37 @@ export function ReviewMode({ isVisible, cwd }: ReviewModeProps) {
       className="flex flex-col flex-1 overflow-hidden min-h-0"
       style={{ display: isVisible ? "flex" : "none" }}
     >
+      {/* Hidden span to measure monospace char width */}
+      <span
+        ref={measureRef}
+        className="font-mono text-[13px] absolute opacity-0 pointer-events-none"
+        aria-hidden="true"
+      >
+        M
+      </span>
+      {/* Header bar with Send to Claude button */}
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[#252526] border-b border-[#404040]">
+        <div className="text-[12px] text-[#888]">
+          {openComments.length > 0 && (
+            <span>
+              {openComments.length} open comment{openComments.length !== 1 ? "s" : ""}
+              {comments.length - openComments.length > 0 && (
+                <span className="text-[#555]">
+                  {" "}&middot; {comments.length - openComments.length} resolved
+                </span>
+              )}
+            </span>
+          )}
+        </div>
+        <button
+          className="px-3 py-1 border border-[#4e9a06] rounded bg-[#2e6b30] text-[#e0e0e0] cursor-pointer text-[12px] font-semibold hover:bg-[#3a8a3c] disabled:opacity-40 disabled:cursor-default disabled:border-[#555]"
+          onClick={handleSendToClaude}
+          disabled={openComments.length === 0}
+        >
+          Send Comments to Claude
+        </button>
+      </div>
+
       <div className="flex flex-1 overflow-hidden min-h-0">
         {/* Sidebar — file tree */}
         <div className="w-[240px] min-w-[200px] bg-[#252526] border-r border-[#404040] overflow-y-auto shrink-0">
