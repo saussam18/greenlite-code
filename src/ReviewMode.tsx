@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { readDir, readFile, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { detectLanguage, tokenizeLine, type Language } from "./syntax";
 
 interface ChangedFile {
@@ -180,6 +181,176 @@ function FileTreeNode({
             onSelect={onSelect}
           />
         ))}
+    </div>
+  );
+}
+
+// --- Project tree (full directory listing) ---
+
+interface ProjectNode {
+  name: string;
+  fullPath: string;
+  isFile: boolean;
+  children: ProjectNode[] | null; // null = not loaded yet
+}
+
+const IGNORED_DIRS = new Set([
+  ".git", "node_modules", "target", "dist", "build", ".next",
+  ".turbo", ".cache", "__pycache__", ".DS_Store", "coverage",
+]);
+
+const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp"]);
+
+function isImageFile(path: string): boolean {
+  const ext = path.split(".").pop()?.toLowerCase() || "";
+  return IMAGE_EXTS.has(ext);
+}
+
+function mimeForExt(path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase() || "";
+  switch (ext) {
+    case "png": return "image/png";
+    case "jpg": case "jpeg": return "image/jpeg";
+    case "gif": return "image/gif";
+    case "svg": return "image/svg+xml";
+    case "webp": return "image/webp";
+    case "ico": return "image/x-icon";
+    case "bmp": return "image/bmp";
+    default: return "application/octet-stream";
+  }
+}
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+async function loadDirChildren(dirPath: string): Promise<ProjectNode[]> {
+  const entries = await readDir(dirPath);
+  const nodes: ProjectNode[] = [];
+  for (const entry of entries) {
+    if (IGNORED_DIRS.has(entry.name)) continue;
+    nodes.push({
+      name: entry.name,
+      fullPath: `${dirPath}/${entry.name}`,
+      isFile: !entry.isDirectory,
+      children: entry.isDirectory ? null : [],
+    });
+  }
+  // Sort: dirs first, then alphabetical
+  nodes.sort((a, b) => {
+    if (a.isFile !== b.isFile) return a.isFile ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
+  return nodes;
+}
+
+function ProjectTree({
+  cwd,
+  selectedPath,
+  onSelect,
+}: {
+  cwd: string;
+  selectedPath: string | null;
+  onSelect: (fullPath: string) => void;
+}) {
+  const [roots, setRoots] = useState<ProjectNode[] | null>(null);
+
+  useEffect(() => {
+    loadDirChildren(cwd).then(setRoots).catch(() => setRoots([]));
+  }, [cwd]);
+
+  if (roots === null) {
+    return <div className="px-3 py-4 text-[13px] text-[#555]">Loading...</div>;
+  }
+  if (roots.length === 0) {
+    return <div className="px-3 py-4 text-[13px] text-[#555]">Empty directory</div>;
+  }
+
+  return (
+    <>
+      {roots.map((node) => (
+        <ProjectTreeNode
+          key={node.fullPath}
+          node={node}
+          depth={0}
+          selectedPath={selectedPath}
+          onSelect={onSelect}
+        />
+      ))}
+    </>
+  );
+}
+
+function ProjectTreeNode({
+  node,
+  depth,
+  selectedPath,
+  onSelect,
+}: {
+  node: ProjectNode;
+  depth: number;
+  selectedPath: string | null;
+  onSelect: (fullPath: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [children, setChildren] = useState<ProjectNode[] | null>(node.children);
+
+  if (node.isFile) {
+    const isSelected = selectedPath === node.fullPath;
+    return (
+      <div
+        className={`flex items-center py-[3px] cursor-pointer text-[13px] hover:bg-white/[0.05] ${
+          isSelected ? "bg-white/[0.1]" : ""
+        }`}
+        style={{ paddingLeft: `${depth * 16 + 24}px`, paddingRight: 8 }}
+        onClick={() => onSelect(node.fullPath)}
+      >
+        <span className="text-[#d4d4d4] truncate min-w-0">{node.name}</span>
+      </div>
+    );
+  }
+
+  const handleToggle = async () => {
+    if (!expanded && children === null) {
+      try {
+        const loaded = await loadDirChildren(node.fullPath);
+        setChildren(loaded);
+      } catch {
+        setChildren([]);
+      }
+    }
+    setExpanded(!expanded);
+  };
+
+  return (
+    <div>
+      <div
+        className="flex items-center gap-2 py-[3px] cursor-pointer text-[13px] text-[#ccc] hover:bg-white/[0.05]"
+        style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        onClick={handleToggle}
+      >
+        <span className="text-[10px] w-3 shrink-0">{expanded ? "▼" : "▶"}</span>
+        <span className="truncate">{node.name}</span>
+      </div>
+      {expanded && children !== null &&
+        children.map((child) => (
+          <ProjectTreeNode
+            key={child.fullPath}
+            node={child}
+            depth={depth + 1}
+            selectedPath={selectedPath}
+            onSelect={onSelect}
+          />
+        ))}
+      {expanded && children === null && (
+        <div className="text-[12px] text-[#555] pl-8" style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }}>
+          Loading...
+        </div>
+      )}
     </div>
   );
 }
@@ -385,6 +556,20 @@ export function ReviewMode({ isVisible, cwd, onModeChange }: ReviewModeProps) {
   const [plainContent, setPlainContent] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [storedCommitHash, setStoredCommitHash] = useState("");
+
+  // Sidebar tab & file browser state
+  const [sidebarTab, setSidebarTab] = useState<"changes" | "files">("changes");
+  const [viewMode, setViewMode] = useState<"diff" | "file">("diff");
+  const [fileContent, setFileContent] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState<string>("");
+  const [isDirty, setIsDirty] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [browseSelectedFile, setBrowseSelectedFile] = useState<string | null>(null);
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  const lineNumRef = useRef<HTMLDivElement | null>(null);
+  const highlightRef = useRef<HTMLPreElement | null>(null);
 
   // Selection state (column-aware)
   const [selectingSide, setSelectingSide] = useState<"old" | "new" | null>(null);
@@ -683,6 +868,68 @@ export function ReviewMode({ isVisible, cwd, onModeChange }: ReviewModeProps) {
     onModeChange("build");
   };
 
+  // Load file content when browsing files
+  useEffect(() => {
+    if (viewMode !== "file" || !browseSelectedFile) {
+      setFileContent(null);
+      setEditContent("");
+      setIsDirty(false);
+      setFileError(null);
+      setImageDataUrl(null);
+      return;
+    }
+    setFileError(null);
+    setFileContent(null);
+    setImageDataUrl(null);
+
+    if (isImageFile(browseSelectedFile)) {
+      readFile(browseSelectedFile)
+        .then((bytes) => {
+          const mime = mimeForExt(browseSelectedFile);
+          const b64 = uint8ToBase64(new Uint8Array(bytes));
+          setImageDataUrl(`data:${mime};base64,${b64}`);
+        })
+        .catch((err) => {
+          setFileError(String(err));
+        });
+    } else {
+      readTextFile(browseSelectedFile)
+        .then((content) => {
+          setFileContent(content);
+          setEditContent(content);
+          setIsDirty(false);
+        })
+        .catch((err) => {
+          setFileContent(null);
+          setEditContent("");
+          setFileError(String(err));
+        });
+    }
+  }, [viewMode, browseSelectedFile]);
+
+  // Save file on Cmd+S
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isVisible) return;
+      if (viewMode === "file" && browseSelectedFile && (e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        writeTextFile(browseSelectedFile, editContent)
+          .then(() => {
+            setFileContent(editContent);
+            setIsDirty(false);
+            setSaveStatus("Saved");
+            setTimeout(() => setSaveStatus(null), 2000);
+          })
+          .catch(() => {
+            setSaveStatus("Save failed");
+            setTimeout(() => setSaveStatus(null), 3000);
+          });
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isVisible, viewMode, browseSelectedFile, editContent]);
+
   // Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -698,9 +945,10 @@ export function ReviewMode({ isVisible, cwd, onModeChange }: ReviewModeProps) {
   const selMax = selNorm ? selNorm.end.line : null;
 
   const tree = buildTree(files);
+  const activePath = viewMode === "file" ? browseSelectedFile : selectedFile;
   const lang: Language = useMemo(
-    () => (selectedFile ? detectLanguage(selectedFile) : null),
-    [selectedFile]
+    () => (activePath ? detectLanguage(activePath) : null),
+    [activePath]
   );
 
   const renderHighlightedLine = (text: string) => {
@@ -1064,23 +1312,157 @@ export function ReviewMode({ isVisible, cwd, onModeChange }: ReviewModeProps) {
 
       <div className="flex flex-1 overflow-hidden min-h-0">
         {/* Sidebar — file tree */}
-        <div className="w-[240px] min-w-[200px] bg-[#252526] border-r border-[#404040] overflow-y-auto shrink-0">
-          <div className="px-3 py-2 text-[11px] text-[#888] font-semibold uppercase tracking-wider border-b border-[#404040]">
-            Changed Files ({files.length})
+        <div className="w-[240px] min-w-[200px] bg-[#252526] border-r border-[#404040] overflow-y-auto shrink-0 flex flex-col">
+          {/* Sidebar tabs */}
+          <div className="flex border-b border-[#404040] shrink-0">
+            <button
+              className={`flex-1 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider cursor-pointer border-b-2 ${
+                sidebarTab === "changes"
+                  ? "text-[#d4d4d4] border-[#4e9a06] bg-[#2d2d30]"
+                  : "text-[#888] border-transparent hover:text-[#ccc] hover:bg-white/[0.03]"
+              }`}
+              onClick={() => setSidebarTab("changes")}
+            >
+              Changes ({files.length})
+            </button>
+            <button
+              className={`flex-1 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider cursor-pointer border-b-2 ${
+                sidebarTab === "files"
+                  ? "text-[#d4d4d4] border-[#4e9a06] bg-[#2d2d30]"
+                  : "text-[#888] border-transparent hover:text-[#ccc] hover:bg-white/[0.03]"
+              }`}
+              onClick={() => setSidebarTab("files")}
+            >
+              Files
+            </button>
           </div>
-          {files.length === 0 ? (
-            <div className="px-3 py-4 text-[13px] text-[#555]">No changes detected</div>
-          ) : (
-            <FileTree nodes={tree} selectedPath={selectedFile} onSelect={(path) => {
-              setSelectedFile(path);
-              const f = files.find((f) => f.path === path);
-              setSelectedStatus(f?.status || null);
-            }} />
-          )}
+          {/* Tab content */}
+          <div className="flex-1 overflow-y-auto">
+            {sidebarTab === "changes" ? (
+              files.length === 0 ? (
+                <div className="px-3 py-4 text-[13px] text-[#555]">No changes detected</div>
+              ) : (
+                <FileTree nodes={tree} selectedPath={selectedFile} onSelect={(path) => {
+                  setSelectedFile(path);
+                  const f = files.find((f) => f.path === path);
+                  setSelectedStatus(f?.status || null);
+                  setViewMode("diff");
+                  setBrowseSelectedFile(null);
+                }} />
+              )
+            ) : (
+              <ProjectTree
+                cwd={cwd}
+                selectedPath={browseSelectedFile}
+                onSelect={(fullPath) => {
+                  setBrowseSelectedFile(fullPath);
+                  setViewMode("file");
+                  setSelectedFile(null);
+                  setSelectedStatus(null);
+                  setDiff(null);
+                  setPlainContent(null);
+                  clearSelection();
+                }}
+              />
+            )}
+          </div>
         </div>
 
         {/* Content area */}
-        {plainContent !== null ? (
+        {viewMode === "file" && browseSelectedFile ? (
+          <div className="flex-1 overflow-hidden min-w-0 flex flex-col bg-[#1e1e1e]">
+            {/* File editor header */}
+            <div className="sticky top-0 z-10 px-3 py-1 bg-[#2d2d2d] border-b border-[#404040] text-[11px] text-[#888] font-semibold flex items-center gap-2 shrink-0">
+              <span className="truncate">{browseSelectedFile.replace(cwd + "/", "")}</span>
+              {isDirty && <span className="text-[#dcdcaa]">(unsaved)</span>}
+              {saveStatus && (
+                <span className={saveStatus === "Saved" ? "text-[#6a9955]" : "text-[#f44747]"}>
+                  {saveStatus}
+                </span>
+              )}
+              {!isImageFile(browseSelectedFile) && (
+                <span className="ml-auto text-[10px] text-[#555]">Cmd+S to save</span>
+              )}
+            </div>
+            {fileError ? (
+              <div className="flex-1 flex items-center justify-center text-[#f44747] text-sm px-4 text-center">
+                {fileError}
+              </div>
+            ) : imageDataUrl ? (
+              <div className="flex-1 flex items-center justify-center overflow-auto p-4">
+                <img
+                  src={imageDataUrl}
+                  alt={browseSelectedFile.split("/").pop() || ""}
+                  className="max-w-full max-h-full object-contain"
+                />
+              </div>
+            ) : fileContent !== null ? (
+              <div className="flex-1 flex overflow-hidden min-h-0">
+                {/* Line numbers — scroll synced with textarea */}
+                <div
+                  ref={lineNumRef}
+                  className="w-[50px] min-w-[50px] overflow-hidden bg-[#1e1e1e] shrink-0 select-none"
+                >
+                  {editContent.split("\n").map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-[21px] leading-[21px] text-right pr-2 font-mono text-[13px] text-[#555]"
+                    >
+                      {i + 1}
+                    </div>
+                  ))}
+                </div>
+                {/* Code area with syntax highlight + textarea overlay */}
+                <div className="flex-1 relative overflow-hidden min-w-0">
+                  {/* Syntax highlight layer (behind textarea, scroll synced) */}
+                  <pre
+                    ref={highlightRef}
+                    className="absolute inset-0 m-0 p-0 bg-transparent overflow-hidden pointer-events-none"
+                  >
+                    <code className="block">
+                      {editContent.split("\n").map((line, i) => (
+                        <div
+                          key={i}
+                          className="h-[21px] leading-[21px] pl-2 pr-2 font-mono text-[13px] whitespace-pre"
+                        >
+                          {line ? renderHighlightedLine(line) : " "}
+                        </div>
+                      ))}
+                    </code>
+                  </pre>
+                  {/* Textarea on top — transparent text, visible caret */}
+                  <textarea
+                    ref={editorRef}
+                    className="absolute inset-0 w-full h-full font-mono text-[13px] leading-[21px] bg-transparent text-transparent resize-none outline-none border-none pl-2 pr-2"
+                    style={{ caretColor: "#d4d4d4" }}
+                    value={editContent}
+                    onChange={(e) => {
+                      setEditContent(e.target.value);
+                      setIsDirty(e.target.value !== fileContent);
+                    }}
+                    onScroll={() => {
+                      if (editorRef.current && highlightRef.current) {
+                        highlightRef.current.scrollTop = editorRef.current.scrollTop;
+                        highlightRef.current.scrollLeft = editorRef.current.scrollLeft;
+                      }
+                      if (editorRef.current && lineNumRef.current) {
+                        lineNumRef.current.scrollTop = editorRef.current.scrollTop;
+                      }
+                    }}
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    wrap="off"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-[#555] text-sm">
+                Loading...
+              </div>
+            )}
+          </div>
+        ) : plainContent !== null ? (
           renderPlainPane(
             selectedStatus === "D" ? "Deleted" : "Added",
             plainContent,
