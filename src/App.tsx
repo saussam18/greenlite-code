@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { SetupScreen } from "./SetupScreen";
-import { BuildMode } from "./BuildMode";
-import { ReviewMode } from "./ReviewMode";
-import { StatusBar } from "./StatusBar";
+import { SetupScreen } from "./general/SetupScreen";
+import { BuildMode } from "./build/BuildMode";
+import { ReviewMode } from "./review/ReviewMode";
+import { StatusBar } from "./general/StatusBar";
 
 type Mode = "build" | "review";
 

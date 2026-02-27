@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { readFile, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
-import { detectLanguage, tokenizeLine, type Language } from "./syntax";
+import { detectLanguage, tokenizeLine, type Language } from "../general/syntax";
 import { CommentThread, type Comment } from "./CommentThread";
 
 export interface DiffLine {
