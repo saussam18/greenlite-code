@@ -18,6 +18,10 @@ pub fn run() {
             git::git_info,
             git::git_changed_files,
             git::git_file_diff,
+            git::git_commit_and_push,
+            git::git_revert_all,
+            git::git_list_branches,
+            git::git_checkout,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

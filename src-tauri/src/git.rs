@@ -100,6 +100,78 @@ pub fn git_file_diff(repo_path: String, file_path: String) -> Result<FileDiff, S
     })
 }
 
+/// Run a git command, checking that it succeeds. Returns an error if the
+/// command exits with a non-zero status.
+fn git_cmd_checked(repo_path: &str, args: &[&str]) -> Result<String, String> {
+    let output = Command::new("git")
+        .args(["-C", repo_path])
+        .args(args)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            format!("git {:?} failed with {}", args, output.status)
+        } else {
+            stderr
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Stage all changes, commit with the given message, and push to upstream.
+/// Returns the new short commit hash on success.
+#[tauri::command]
+pub fn git_commit_and_push(repo_path: String, message: String) -> Result<String, String> {
+    git_cmd_checked(&repo_path, &["add", "-A"])?;
+    git_cmd_checked(&repo_path, &["commit", "-m", &message])?;
+    git_cmd_checked(&repo_path, &["push"])?;
+    let hash = git_cmd(&repo_path, &["log", "-1", "--format=%h"]).unwrap_or_default();
+    Ok(hash)
+}
+
+/// Discard all working-tree changes (tracked and untracked).
+#[tauri::command]
+pub fn git_revert_all(repo_path: String) -> Result<String, String> {
+    git_cmd_checked(&repo_path, &["checkout", "--", "."])?;
+    git_cmd_checked(&repo_path, &["clean", "-fd"])?;
+    Ok("All changes reverted".to_string())
+}
+
+/// List local branch names (current branch first).
+#[tauri::command]
+pub fn git_list_branches(repo_path: String) -> Result<Vec<String>, String> {
+    let raw = git_cmd_checked(&repo_path, &["branch"])?;
+    let mut current = String::new();
+    let mut others: Vec<String> = Vec::new();
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(name) = trimmed.strip_prefix("* ") {
+            current = name.to_string();
+        } else {
+            others.push(trimmed.to_string());
+        }
+    }
+    others.sort();
+    let mut branches = vec![current];
+    branches.append(&mut others);
+    Ok(branches)
+}
+
+/// Checkout an existing branch, or create a new one if `new_branch` is true.
+#[tauri::command]
+pub fn git_checkout(repo_path: String, branch: String, new_branch: bool) -> Result<String, String> {
+    if new_branch {
+        git_cmd_checked(&repo_path, &["checkout", "-b", &branch])?;
+    } else {
+        git_cmd_checked(&repo_path, &["checkout", &branch])?;
+    }
+    Ok(format!("Switched to branch '{}'", branch))
+}
+
 /// Return the list of changed files (staged + unstaged) in the working tree,
 /// each with a two-character git status code and its file path.
 #[tauri::command]
