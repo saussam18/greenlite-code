@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+html, body {
+  background: #1e1e1e;
+  overflow: hidden;
+}
+
 /* xterm needs explicit height to fill its container */
 .terminal-container .xterm {
   height: 100%;
