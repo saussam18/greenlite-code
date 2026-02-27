@@ -18,7 +18,7 @@ function App() {
     <div className="flex flex-col h-screen">
       <div className="flex flex-col flex-1 overflow-hidden min-h-0">
         <BuildMode isVisible={activeMode === "build"} cwd={projectPath} />
-        <ReviewMode isVisible={activeMode === "review"} cwd={projectPath} />
+        <ReviewMode isVisible={activeMode === "review"} cwd={projectPath} onModeChange={setActiveMode} />
       </div>
       <StatusBar
         repoPath={projectPath}
