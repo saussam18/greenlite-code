@@ -7,11 +7,22 @@ import { StatusBar } from "./StatusBar";
 type Mode = "build" | "review";
 
 function App() {
-  const [projectPath, setProjectPath] = useState<string | null>(null);
+  const [projectPath, setProjectPath] = useState<string | null>(
+    () => localStorage.getItem("lastProject")
+  );
   const [activeMode, setActiveMode] = useState<Mode>("build");
 
+  const selectProject = (path: string | null) => {
+    setProjectPath(path);
+    if (path) {
+      localStorage.setItem("lastProject", path);
+    } else {
+      localStorage.removeItem("lastProject");
+    }
+  };
+
   if (!projectPath) {
-    return <SetupScreen onSelect={setProjectPath} />;
+    return <SetupScreen onSelect={selectProject} />;
   }
 
   return (
@@ -24,6 +35,7 @@ function App() {
         repoPath={projectPath}
         activeMode={activeMode}
         onModeChange={setActiveMode}
+        onChangeProject={() => selectProject(null)}
       />
     </div>
   );

@@ -21,6 +21,7 @@ interface StatusBarProps {
   repoPath: string;
   activeMode: Mode;
   onModeChange: (mode: Mode) => void;
+  onChangeProject: () => void;
 }
 
 function statusColor(status: string) {
@@ -36,7 +37,7 @@ function statusColor(status: string) {
   }
 }
 
-export function StatusBar({ repoPath, activeMode, onModeChange }: StatusBarProps) {
+export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject }: StatusBarProps) {
   const [info, setInfo] = useState<GitInfo | null>(null);
   const [files, setFiles] = useState<ChangedFile[]>([]);
   const [showFiles, setShowFiles] = useState(false);
@@ -79,8 +80,17 @@ export function StatusBar({ repoPath, activeMode, onModeChange }: StatusBarProps
 
   return (
     <div className="flex items-center justify-between shrink-0 bg-[#181818] border-t border-[#404040] px-3 py-1 text-[11px] font-mono text-[#888] select-none min-h-[28px] gap-4">
-      {/* Left: git info */}
+      {/* Left: project name + git info */}
       <div className="flex items-center gap-3 shrink-0 overflow-hidden min-w-0 flex-1">
+        <button
+          className="flex items-center gap-1 text-[11px] text-[#d4d4d4] hover:text-white cursor-pointer bg-transparent border-none font-mono shrink-0"
+          onClick={onChangeProject}
+          title="Switch project"
+        >
+          <span className="text-[#888]">📁</span>
+          {repoPath.split("/").pop()}
+        </button>
+        <span className="text-[#404040] shrink-0">│</span>
         {info ? (
           <>
             <span className="flex items-center gap-1 text-[#d4d4d4] shrink-0">

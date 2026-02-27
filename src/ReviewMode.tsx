@@ -1433,7 +1433,7 @@ export function ReviewMode({ isVisible, cwd, onModeChange }: ReviewModeProps) {
                   {/* Textarea on top — transparent text, visible caret */}
                   <textarea
                     ref={editorRef}
-                    className="absolute inset-0 w-full h-full font-mono text-[13px] leading-[21px] bg-transparent text-transparent resize-none outline-none border-none pl-2 pr-2"
+                    className="absolute inset-0 w-full h-full font-mono text-[13px] leading-[21px] bg-[#1e1e1e] text-transparent resize-none outline-none border-none pl-2 pr-2"
                     style={{ caretColor: "#d4d4d4" }}
                     value={editContent}
                     onChange={(e) => {
