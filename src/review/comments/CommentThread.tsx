@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import type { Comment } from "../types/review";
+import type { Comment } from "../../types/review";
 import { CommentCard } from "./CommentCard";
 import { lineLabel } from "./commentUtils";
 

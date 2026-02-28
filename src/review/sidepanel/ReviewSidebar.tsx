@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { writeTextFile, mkdir } from "@tauri-apps/plugin-fs";
 import { FilePlus, FolderPlus } from "lucide-react";
-import type { ChangedFile } from "../types/git";
+import type { ChangedFile } from "../../types/git";
 import { FileTree, buildTree } from "./FileTree";
 import { ProjectTree } from "./ProjectTree";
 

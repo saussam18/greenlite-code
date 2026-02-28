@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import type { ChangedFile } from "../types/git";
+import type { ChangedFile } from "../../types/git";
 
 export interface TreeNode {
   name: string;

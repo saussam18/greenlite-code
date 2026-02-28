@@ -1,5 +1,5 @@
 import { Check, Undo2, Trash2, X } from "lucide-react";
-import type { Comment } from "../types/review";
+import type { Comment } from "../../types/review";
 
 export function CommentCard({
   comment,

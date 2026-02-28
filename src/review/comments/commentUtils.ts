@@ -1,4 +1,4 @@
-import type { Comment } from "../types/review";
+import type { Comment } from "../../types/review";
 
 export function lineLabel(comment: Comment): string {
   const hasCol = comment.startCol !== 0 || comment.endCol !== Infinity;

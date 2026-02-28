@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { readDir } from "@tauri-apps/plugin-fs";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import type { ProjectNode } from "../types/git";
+import type { ProjectNode } from "../../types/git";
 
 const IGNORED_DIRS = new Set([
   ".git", "node_modules", "target", "dist", ".next",

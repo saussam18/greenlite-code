@@ -1,4 +1,4 @@
-import type { Comment, CommentsData } from "../types/review";
+import type { Comment, CommentsData } from "../../types/review";
 
 function commentsKey(repoPath: string): string {
   return `comments:${repoPath}`;

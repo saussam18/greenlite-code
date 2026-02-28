@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ReviewSidebar } from "./ReviewSidebar";
-import { ReviewEditor } from "./ReviewEditor";
+import { ReviewSidebar } from "./sidepanel/ReviewSidebar";
+import { ReviewEditor } from "./viewers/ReviewEditor";
 import { computeDiff } from "./diffAlgorithm";
-import { loadCommentsData, saveCommentsData } from "./commentsStorage";
+import { loadCommentsData, saveCommentsData } from "./comments/commentsStorage";
 import type { DiffLine, Comment, FileDiff, ReviewInfo } from "../types/review";
 import type { GitInfo, ChangedFile } from "../types/git";
 import type { Mode } from "../types/settings";
