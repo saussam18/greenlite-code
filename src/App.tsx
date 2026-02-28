@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { SetupScreen } from "./general/SetupScreen";
 import { BuildMode } from "./build/BuildMode";
 import { ReviewMode } from "./review/ReviewMode";
@@ -7,9 +8,14 @@ import { StatusBar } from "./general/StatusBar";
 type Mode = "build" | "review";
 
 function App() {
-  const [projectPath, setProjectPath] = useState<string | null>(
-    () => localStorage.getItem("lastProject")
-  );
+  const [projectPath, setProjectPath] = useState<string | null>(() => {
+    // Only auto-load last project for the initial window;
+    // new windows (main-1, main-2, …) always start on the folder select screen
+    if (getCurrentWebviewWindow().label === "main") {
+      return localStorage.getItem("lastProject");
+    }
+    return null;
+  });
   const [activeMode, setActiveMode] = useState<Mode>("build");
 
   const selectProject = (path: string | null) => {

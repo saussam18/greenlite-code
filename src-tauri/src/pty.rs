@@ -2,32 +2,55 @@
 // Creates a PTY running the user's shell, auto-launches `claude` inside it,
 // and streams output back to the frontend via Tauri events. Also supports
 // writing input and resizing the terminal.
+//
+// Each window gets its own independent PTY session, keyed by window label.
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, State, WebviewWindow};
 
-pub struct PtyState {
-    pub master: Option<Box<dyn MasterPty + Send>>,
+struct PtyEntry {
+    master: Box<dyn MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
 }
 
-pub struct WriterState {
-    pub writer: Option<Box<dyn Write + Send>>,
+pub struct PtyStore {
+    sessions: HashMap<String, PtyEntry>,
+}
+
+impl PtyStore {
+    pub fn new() -> Self {
+        Self {
+            sessions: HashMap::new(),
+        }
+    }
+
+    pub fn remove(&mut self, label: &str) {
+        self.sessions.remove(label);
+    }
+}
+
+pub fn new_store() -> Mutex<PtyStore> {
+    Mutex::new(PtyStore::new())
 }
 
 /// Spawn a new PTY shell session in the given working directory.
 /// Inherits essential environment variables (SHELL, HOME, USER, PATH),
-/// auto-launches `claude`, and begins streaming output via the "pty-output" event.
+/// auto-launches `claude`, and begins streaming output via the "pty-output" event
+/// scoped to the calling window.
 #[tauri::command]
 pub fn pty_create(
     app: AppHandle,
-    pty_state: State<'_, Mutex<PtyState>>,
-    writer_state: State<'_, Mutex<WriterState>>,
+    window: WebviewWindow,
+    store: State<'_, Mutex<PtyStore>>,
     rows: u16,
     cols: u16,
     cwd: String,
 ) -> Result<(), String> {
+    let window_label = window.label().to_string();
+
     let pty_system = native_pty_system();
 
     let pty_pair = pty_system
@@ -66,31 +89,28 @@ pub fn pty_create(
         .try_clone_reader()
         .map_err(|e| e.to_string())?;
 
-    let writer = pty_pair
+    let mut writer = pty_pair
         .master
         .take_writer()
         .map_err(|e| e.to_string())?;
 
-    {
-        let mut pg = pty_state.lock().map_err(|e| e.to_string())?;
-        pg.master = Some(pty_pair.master);
-    }
-
-    {
-        let mut wg = writer_state.lock().map_err(|e| e.to_string())?;
-        wg.writer = Some(writer);
-    }
-
     // Auto-launch claude in the PTY
+    let _ = writer.write_all(b"claude\n");
+    let _ = writer.flush();
+
     {
-        let mut wg = writer_state.lock().map_err(|e| e.to_string())?;
-        if let Some(writer) = &mut wg.writer {
-            let _ = writer.write_all(b"claude\n");
-            let _ = writer.flush();
-        }
+        let mut guard = store.lock().map_err(|e| e.to_string())?;
+        guard.sessions.insert(
+            window_label.clone(),
+            PtyEntry {
+                master: pty_pair.master,
+                writer,
+            },
+        );
     }
 
-    // 🔥 Correct UTF-8 streaming read loop
+    // Stream output to the originating window only
+    let label_for_thread = window_label.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
         let mut pending: Vec<u8> = Vec::new();
@@ -104,7 +124,7 @@ pub fn pty_create(
                     loop {
                         match std::str::from_utf8(&pending) {
                             Ok(valid_str) => {
-                                let _ = app.emit("pty-output", valid_str.to_string());
+                                let _ = app.emit_to(&label_for_thread, "pty-output", valid_str.to_string());
                                 pending.clear();
                                 break;
                             }
@@ -112,14 +132,13 @@ pub fn pty_create(
                                 let valid_up_to = err.valid_up_to();
 
                                 if valid_up_to == 0 {
-                                    // Incomplete multi-byte character — wait for next read
                                     break;
                                 }
 
                                 let valid_part = &pending[..valid_up_to];
 
                                 if let Ok(valid_str) = std::str::from_utf8(valid_part) {
-                                    let _ = app.emit("pty-output", valid_str.to_string());
+                                    let _ = app.emit_to(&label_for_thread, "pty-output", valid_str.to_string());
                                 }
 
                                 pending = pending[valid_up_to..].to_vec();
@@ -134,36 +153,41 @@ pub fn pty_create(
     Ok(())
 }
 
-/// Write raw input data (keystrokes) to the PTY.
+/// Write raw input data (keystrokes) to the PTY for the calling window.
 #[tauri::command]
 pub fn pty_write(
-    state: State<'_, Mutex<WriterState>>,
+    window: WebviewWindow,
+    store: State<'_, Mutex<PtyStore>>,
     data: String,
 ) -> Result<(), String> {
-    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    let mut guard = store.lock().map_err(|e| e.to_string())?;
+    let label = window.label();
 
-    if let Some(writer) = &mut guard.writer {
-        writer
+    if let Some(entry) = guard.sessions.get_mut(label) {
+        entry
+            .writer
             .write_all(data.as_bytes())
             .map_err(|e| e.to_string())?;
-
-        writer.flush().map_err(|e| e.to_string())?;
+        entry.writer.flush().map_err(|e| e.to_string())?;
     }
 
     Ok(())
 }
 
-/// Resize the PTY to match the frontend terminal dimensions.
+/// Resize the PTY to match the frontend terminal dimensions for the calling window.
 #[tauri::command]
 pub fn pty_resize(
-    state: State<'_, Mutex<PtyState>>,
+    window: WebviewWindow,
+    store: State<'_, Mutex<PtyStore>>,
     rows: u16,
     cols: u16,
 ) -> Result<(), String> {
-    let guard = state.lock().map_err(|e| e.to_string())?;
+    let guard = store.lock().map_err(|e| e.to_string())?;
+    let label = window.label();
 
-    if let Some(master) = &guard.master {
-        master
+    if let Some(entry) = guard.sessions.get(label) {
+        entry
+            .master
             .resize(PtySize {
                 rows,
                 cols,
@@ -173,5 +197,16 @@ pub fn pty_resize(
             .map_err(|e| e.to_string())?;
     }
 
+    Ok(())
+}
+
+/// Clean up the PTY session for the calling window.
+#[tauri::command]
+pub fn pty_destroy(
+    window: WebviewWindow,
+    store: State<'_, Mutex<PtyStore>>,
+) -> Result<(), String> {
+    let mut guard = store.lock().map_err(|e| e.to_string())?;
+    guard.remove(window.label());
     Ok(())
 }

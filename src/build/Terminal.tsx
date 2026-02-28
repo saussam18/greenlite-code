@@ -2,7 +2,8 @@ import { useEffect, useRef, useCallback } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import "@xterm/xterm/css/xterm.css";
 
 interface TerminalProps {
@@ -64,7 +65,7 @@ export function Terminal({ isVisible, cwd }: TerminalProps) {
 
     await invoke("pty_create", { rows, cols, cwd });
 
-    unlistenRef.current = await listen<string>("pty-output", (event) => {
+    unlistenRef.current = await getCurrentWebviewWindow().listen<string>("pty-output", (event) => {
       term.write(event.payload);
     });
 
