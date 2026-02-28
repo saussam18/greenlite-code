@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { MessageSquare, ChevronDown, ChevronUp, Send, FileText } from "lucide-react";
 import type { TerminalCommandSetting } from "./SetupScreen";
+import type { ReviewInfo } from "../review/ReviewMode";
 
 interface GitInfo {
   branch: string;
@@ -26,6 +28,7 @@ interface StatusBarProps {
   terminalSetting: TerminalCommandSetting;
   customCommand?: string;
   onChangeTerminalCommand: (setting: TerminalCommandSetting, customCmd?: string) => void;
+  reviewInfo?: ReviewInfo | null;
 }
 
 const TERMINAL_LABELS: Record<TerminalCommandSetting, string> = {
@@ -57,7 +60,7 @@ function statusColor(status: string) {
   }
 }
 
-export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject, terminalSetting, customCommand, onChangeTerminalCommand }: StatusBarProps) {
+export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject, terminalSetting, customCommand, onChangeTerminalCommand, reviewInfo }: StatusBarProps) {
   const [info, setInfo] = useState<GitInfo | null>(null);
   const [files, setFiles] = useState<ChangedFile[]>([]);
   const [showFiles, setShowFiles] = useState(false);
@@ -69,6 +72,7 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
   const [newBranchName, setNewBranchName] = useState("");
   const [showTerminalPicker, setShowTerminalPicker] = useState(false);
   const [terminalCustomCmd, setTerminalCustomCmd] = useState("");
+  const [showCommentsList, setShowCommentsList] = useState(false);
   const intervalRef = useRef<number | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const commitInputRef = useRef<HTMLTextAreaElement>(null);
@@ -76,6 +80,7 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
   const branchPopoverRef = useRef<HTMLDivElement>(null);
   const newBranchInputRef = useRef<HTMLInputElement>(null);
   const terminalPickerRef = useRef<HTMLDivElement>(null);
+  const commentsListRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fetch = () => {
@@ -193,6 +198,18 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [showTerminalPicker]);
+
+  // Close comments list on click outside
+  useEffect(() => {
+    if (!showCommentsList) return;
+    const handleClick = (e: MouseEvent) => {
+      if (commentsListRef.current && !commentsListRef.current.contains(e.target as Node)) {
+        setShowCommentsList(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showCommentsList]);
 
   const terminalDisplayLabel = terminalSetting === "custom" && customCommand
     ? customCommand
@@ -388,8 +405,69 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
         </button>
       </div>
 
-      {/* Right: git actions + changed files summary */}
+      {/* Right: actions */}
       <div className="relative flex items-center justify-end flex-1 min-w-0 gap-3">
+        {/* Review comments info + Send to Claude (visible in review mode) */}
+        {activeMode === "review" && reviewInfo && (
+          <>
+            <div className="relative shrink-0" ref={commentsListRef}>
+              {reviewInfo.openComments.length > 0 ? (
+                <button
+                  className="flex items-center gap-1.5 cursor-pointer hover:text-[#ccc] bg-transparent border-none text-[14px] text-[#888] p-0 font-mono"
+                  onClick={() => setShowCommentsList(!showCommentsList)}
+                >
+                  <MessageSquare size={14} />
+                  {reviewInfo.openComments.length} open comment{reviewInfo.openComments.length !== 1 ? "s" : ""}
+                  {reviewInfo.resolvedCount > 0 && (
+                    <span className="text-[#555]">
+                      &middot; {reviewInfo.resolvedCount} resolved
+                    </span>
+                  )}
+                  {showCommentsList ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                </button>
+              ) : (
+                <span className="flex items-center gap-1.5 text-[14px] text-[#888] font-mono">
+                  <MessageSquare size={14} />
+                  No comments
+                </span>
+              )}
+              {showCommentsList && reviewInfo.openComments.length > 0 && (
+                <div className="absolute bottom-full right-0 mb-2 w-[380px] max-h-[320px] overflow-y-auto bg-[#252526] border border-[#404040] rounded shadow-[0_4px_16px_rgba(0,0,0,0.4)] z-50">
+                  {reviewInfo.openComments.map((c) => (
+                    <button
+                      key={c.id}
+                      className="w-full text-left px-3 py-2 hover:bg-white/[0.06] cursor-pointer border-b border-[#404040] last:border-b-0 bg-transparent border-x-0 border-t-0"
+                      onClick={() => {
+                        reviewInfo.onNavigateToComment(c);
+                        setShowCommentsList(false);
+                      }}
+                    >
+                      <div className="flex items-center gap-1.5 text-[11px] text-[#888] mb-0.5">
+                        <FileText size={11} className="shrink-0" />
+                        <span className="truncate">{c.filePath}</span>
+                        <span className="text-[#555] shrink-0">
+                          L{c.startLine}{c.startLine !== c.endLine ? `–${c.endLine}` : ""}
+                        </span>
+                      </div>
+                      <div className="text-[12px] text-[#d4d4d4] truncate">{c.text}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <button
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-[#4e9a06] rounded bg-[#2e6b30] text-[#e0e0e0] cursor-pointer text-[14px] font-bold tracking-wider hover:bg-[#3a8a3c] disabled:opacity-40 disabled:cursor-default disabled:border-[#555] shrink-0"
+              onClick={reviewInfo.onSendToClaude}
+              disabled={reviewInfo.openComments.length === 0}
+            >
+              <Send size={13} /> Send to Claude
+            </button>
+
+            <span className="text-[#404040] shrink-0">│</span>
+          </>
+        )}
+
         {/* Commit + Push */}
         <button
           disabled={!info?.dirty}
@@ -435,7 +513,7 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
                   {files.length} changed file{files.length !== 1 ? "s" : ""}
                 </span>
                 <div className="flex items-center gap-3">
-<button
+                  <button
                     type="button"
                     onClick={() => { setShowCommit(false); setCommitMsg(""); }}
                     className="flex-1 px-5 py-2 border rounded text-[13px] font-bold cursor-pointer bg-transparent text-[#888] border-[#404040] hover:text-[#ccc] hover:border-[#555] whitespace-nowrap"

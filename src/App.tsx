@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { SetupScreen, getProjectSettings, saveProjectSettings, resolveTerminalCommand, type TerminalCommandSetting, type ProjectSettings } from "./general/SetupScreen";
 import { BuildMode } from "./build/BuildMode";
-import { ReviewMode } from "./review/ReviewMode";
+import { ReviewMode, type ReviewInfo } from "./review/ReviewMode";
 import { StatusBar } from "./general/StatusBar";
 
 type Mode = "build" | "review";
@@ -18,6 +18,7 @@ function App() {
   });
   const [activeMode, setActiveMode] = useState<Mode>("build");
   const [terminalSettingVersion, setTerminalSettingVersion] = useState(0);
+  const [reviewInfo, setReviewInfo] = useState<ReviewInfo | null>(null);
 
   const selectProject = (path: string | null) => {
     setProjectPath(path);
@@ -58,7 +59,7 @@ function App() {
     <div className="flex flex-col h-screen bg-[#1e1e1e] overflow-hidden">
       <div className="flex flex-col flex-1 overflow-hidden min-h-0">
         <BuildMode isVisible={activeMode === "build"} cwd={projectPath} terminalCommand={terminalCommand} />
-        <ReviewMode isVisible={activeMode === "review"} cwd={projectPath} onModeChange={setActiveMode} />
+        <ReviewMode isVisible={activeMode === "review"} cwd={projectPath} onModeChange={setActiveMode} onReviewInfo={setReviewInfo} />
       </div>
       <StatusBar
         repoPath={projectPath}
@@ -68,6 +69,7 @@ function App() {
         terminalSetting={projectSettings?.terminalCommand ?? "claude"}
         customCommand={projectSettings?.customCommand}
         onChangeTerminalCommand={handleChangeTerminalCommand}
+        reviewInfo={activeMode === "review" ? reviewInfo : null}
       />
     </div>
   );

@@ -4,7 +4,6 @@ import { ReviewSidebar, type ChangedFile } from "./ReviewSidebar";
 import { ReviewEditor } from "./ReviewEditor";
 import type { DiffLine } from "./types";
 import type { Comment } from "./CommentThread";
-import { MessageSquare, ChevronDown, ChevronUp, Send, FileText } from "lucide-react";
 
 interface FileDiff {
   old_content: string;
@@ -26,10 +25,18 @@ interface GitInfo {
 
 type Mode = "build" | "review";
 
+export interface ReviewInfo {
+  openComments: Comment[];
+  resolvedCount: number;
+  onSendToClaude: () => void;
+  onNavigateToComment: (comment: Comment) => void;
+}
+
 interface ReviewModeProps {
   isVisible: boolean;
   cwd: string;
   onModeChange: (mode: Mode) => void;
+  onReviewInfo?: (info: ReviewInfo | null) => void;
 }
 
 // --- Diff algorithm (LCS-based) ---
@@ -124,7 +131,7 @@ function saveCommentsData(repoPath: string, data: CommentsData): void {
 
 // --- Main component ---
 
-export function ReviewMode({ isVisible, cwd, onModeChange }: ReviewModeProps) {
+export function ReviewMode({ isVisible, cwd, onModeChange, onReviewInfo }: ReviewModeProps) {
   const [files, setFiles] = useState<ChangedFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
@@ -136,9 +143,7 @@ export function ReviewMode({ isVisible, cwd, onModeChange }: ReviewModeProps) {
   const [sidebarTab, setSidebarTab] = useState<"changes" | "files">("changes");
   const [viewMode, setViewMode] = useState<"diff" | "file">("diff");
   const [browseSelectedFile, setBrowseSelectedFile] = useState<string | null>(null);
-  const [showCommentsList, setShowCommentsList] = useState(false);
   const [scrollToCommentId, setScrollToCommentId] = useState<string | null>(null);
-  const commentsListRef = useRef<HTMLDivElement | null>(null);
 
   const pollRef = useRef<number | null>(null);
 
@@ -262,18 +267,6 @@ export function ReviewMode({ isVisible, cwd, onModeChange }: ReviewModeProps) {
     // The editor also manages its own selection state internally.
   };
 
-  // Close comments list on click outside
-  useEffect(() => {
-    if (!showCommentsList) return;
-    const handleClick = (e: MouseEvent) => {
-      if (commentsListRef.current && !commentsListRef.current.contains(e.target as Node)) {
-        setShowCommentsList(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [showCommentsList]);
-
   const navigateToComment = (comment: Comment) => {
     // Switch to the file containing the comment
     const changedFile = files.find((f) => f.path === comment.filePath);
@@ -285,7 +278,6 @@ export function ReviewMode({ isVisible, cwd, onModeChange }: ReviewModeProps) {
       setSidebarTab("changes");
     }
     setScrollToCommentId(comment.id);
-    setShowCommentsList(false);
   };
 
   // Comment CRUD
@@ -311,6 +303,7 @@ export function ReviewMode({ isVisible, cwd, onModeChange }: ReviewModeProps) {
 
   // Send open comments to Claude via PTY
   const openComments = comments.filter((c) => !c.resolved);
+  const resolvedCount = comments.length - openComments.length;
 
   const handleSendToClaude = () => {
     if (openComments.length === 0) return;
@@ -338,73 +331,33 @@ export function ReviewMode({ isVisible, cwd, onModeChange }: ReviewModeProps) {
       }
     }
 
-    invoke("pty_write", { data: prompt }).catch(console.error);
+    invoke("pty_write", { data: prompt, terminalId: "term-0" }).catch(console.error);
     onModeChange("build");
   };
+
+  // Push review info up to parent for StatusBar.
+  // Use refs for callbacks so the useEffect only re-fires when comments data changes.
+  const sendToClaudeRef = useRef(handleSendToClaude);
+  sendToClaudeRef.current = handleSendToClaude;
+  const navigateRef = useRef(navigateToComment);
+  navigateRef.current = navigateToComment;
+
+  useEffect(() => {
+    if (onReviewInfo) {
+      onReviewInfo({
+        openComments,
+        resolvedCount,
+        onSendToClaude: () => sendToClaudeRef.current(),
+        onNavigateToComment: (c) => navigateRef.current(c),
+      });
+    }
+  }, [comments, onReviewInfo]);
 
   return (
     <div
       className="flex flex-col flex-1 overflow-hidden min-h-0"
       style={{ display: isVisible ? "flex" : "none" }}
     >
-      {/* Header bar with Send to Claude button */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#252526] border-b border-[#404040] relative">
-        <div className="text-[12px] text-[#888]" ref={commentsListRef}>
-          {openComments.length > 0 ? (
-            <button
-              className="flex items-center gap-1.5 cursor-pointer hover:text-[#ccc] bg-transparent border-none text-[12px] text-[#888] p-0"
-              onClick={() => setShowCommentsList(!showCommentsList)}
-            >
-              <MessageSquare size={13} />
-              {openComments.length} open comment{openComments.length !== 1 ? "s" : ""}
-              {comments.length - openComments.length > 0 && (
-                <span className="text-[#555]">
-                  &middot; {comments.length - openComments.length} resolved
-                </span>
-              )}
-              {showCommentsList ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            </button>
-          ) : (
-            <span className="flex items-center gap-1.5">
-              <MessageSquare size={13} />
-              No comments
-            </span>
-          )}
-          {/* Comments dropdown */}
-          {showCommentsList && (
-            <div className="absolute left-2 top-full mt-0.5 z-30 w-[380px] max-h-[320px] overflow-y-auto bg-[#2d2d30] border border-[#555] rounded-md shadow-[0_4px_16px_rgba(0,0,0,0.5)]">
-              {openComments.length === 0 ? (
-                <div className="px-3 py-3 text-[12px] text-[#555]">No open comments</div>
-              ) : (
-                openComments.map((c) => (
-                  <button
-                    key={c.id}
-                    className="w-full text-left px-3 py-2 hover:bg-white/[0.06] cursor-pointer border-b border-[#404040] last:border-b-0 bg-transparent border-x-0 border-t-0"
-                    onClick={() => navigateToComment(c)}
-                  >
-                    <div className="flex items-center gap-1.5 text-[11px] text-[#888] mb-0.5">
-                      <FileText size={11} className="shrink-0" />
-                      <span className="truncate">{c.filePath}</span>
-                      <span className="text-[#555] shrink-0">
-                        L{c.startLine}{c.startLine !== c.endLine ? `–${c.endLine}` : ""}
-                      </span>
-                    </div>
-                    <div className="text-[12px] text-[#d4d4d4] truncate">{c.text}</div>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-        <button
-          className="flex items-center gap-1.5 px-3 py-1 border border-[#4e9a06] rounded bg-[#2e6b30] text-[#e0e0e0] cursor-pointer text-[12px] font-semibold hover:bg-[#3a8a3c] disabled:opacity-40 disabled:cursor-default disabled:border-[#555]"
-          onClick={handleSendToClaude}
-          disabled={openComments.length === 0}
-        >
-          <Send size={12} /> Send to Claude
-        </button>
-      </div>
-
       <div className="flex flex-1 overflow-hidden min-h-0">
         <ReviewSidebar
           sidebarTab={sidebarTab}
