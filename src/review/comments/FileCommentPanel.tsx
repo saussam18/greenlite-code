@@ -1,3 +1,12 @@
+interface FileCommentPanelProps {
+  startLine: number;
+  endLine: number;
+  text: string;
+  onTextChange: (text: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}
+
 export function FileCommentPanel({
   startLine,
   endLine,
@@ -5,14 +14,7 @@ export function FileCommentPanel({
   onTextChange,
   onSubmit,
   onCancel,
-}: {
-  startLine: number;
-  endLine: number;
-  text: string;
-  onTextChange: (text: string) => void;
-  onSubmit: () => void;
-  onCancel: () => void;
-}) {
+}: FileCommentPanelProps) {
   const lineLabel = startLine === endLine
     ? `Comment on line ${startLine}`
     : `Comment on lines ${Math.min(startLine, endLine)}–${Math.max(startLine, endLine)}`;

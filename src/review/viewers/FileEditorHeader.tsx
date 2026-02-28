@@ -1,16 +1,18 @@
+interface FileEditorHeaderProps {
+  filePath: string;
+  cwd: string;
+  isDirty: boolean;
+  saveStatus: string | null;
+  isImage: boolean;
+}
+
 export function FileEditorHeader({
   filePath,
   cwd,
   isDirty,
   saveStatus,
   isImage,
-}: {
-  filePath: string;
-  cwd: string;
-  isDirty: boolean;
-  saveStatus: string | null;
-  isImage: boolean;
-}) {
+}: FileEditorHeaderProps) {
   return (
     <div className="sticky top-0 z-10 px-3 py-1 bg-[#2d2d2d] border-b border-[#404040] text-[11px] text-[#888] font-semibold flex items-center gap-2 shrink-0">
       <span className="truncate">{filePath.replace(cwd + "/", "")}</span>

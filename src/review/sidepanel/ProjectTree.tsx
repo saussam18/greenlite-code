@@ -68,17 +68,19 @@ export function ProjectTree({
   );
 }
 
+interface ProjectTreeNodeProps {
+  node: ProjectNode;
+  depth: number;
+  selectedPath: string | null;
+  onSelect: (fullPath: string) => void;
+}
+
 function ProjectTreeNode({
   node,
   depth,
   selectedPath,
   onSelect,
-}: {
-  node: ProjectNode;
-  depth: number;
-  selectedPath: string | null;
-  onSelect: (fullPath: string) => void;
-}) {
+}: ProjectTreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<ProjectNode[] | null>(node.children);
 

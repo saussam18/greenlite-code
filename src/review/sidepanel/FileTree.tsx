@@ -54,15 +54,17 @@ function statusColor(status: string) {
   }
 }
 
+interface FileTreeProps {
+  nodes: TreeNode[];
+  selectedPath: string | null;
+  onSelect: (path: string) => void;
+}
+
 export function FileTree({
   nodes,
   selectedPath,
   onSelect,
-}: {
-  nodes: TreeNode[];
-  selectedPath: string | null;
-  onSelect: (path: string) => void;
-}) {
+}: FileTreeProps) {
   return (
     <>
       {nodes.map((node) => (
@@ -78,17 +80,19 @@ export function FileTree({
   );
 }
 
+interface FileTreeNodeProps {
+  node: TreeNode;
+  depth: number;
+  selectedPath: string | null;
+  onSelect: (path: string) => void;
+}
+
 function FileTreeNode({
   node,
   depth,
   selectedPath,
   onSelect,
-}: {
-  node: TreeNode;
-  depth: number;
-  selectedPath: string | null;
-  onSelect: (path: string) => void;
-}) {
+}: FileTreeNodeProps) {
   const [expanded, setExpanded] = useState(true);
 
   if (node.isFile) {

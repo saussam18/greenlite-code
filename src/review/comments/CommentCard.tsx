@@ -1,19 +1,21 @@
 import { Check, Undo2, Trash2, X } from "lucide-react";
 import type { Comment } from "../../types/review";
 
+interface CommentCardProps {
+  comment: Comment;
+  onResolve: (id: string) => void;
+  onUnresolve: (id: string) => void;
+  onDelete: (id: string) => void;
+  onCollapse?: () => void;
+}
+
 export function CommentCard({
   comment,
   onResolve,
   onUnresolve,
   onDelete,
   onCollapse,
-}: {
-  comment: Comment;
-  onResolve: (id: string) => void;
-  onUnresolve: (id: string) => void;
-  onDelete: (id: string) => void;
-  onCollapse?: () => void;
-}) {
+}: CommentCardProps) {
   const borderColor = comment.resolved ? "#555" : "#4e9a06";
   const opacity = comment.resolved ? "opacity-60" : "";
 
