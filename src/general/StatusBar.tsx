@@ -406,7 +406,7 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
         {showCommit && (
           <div
             ref={commitDialogRef}
-            className="absolute bottom-full right-0 mb-2 bg-[#252526] border border-[#404040] rounded shadow-[0_4px_16px_rgba(0,0,0,0.4)] w-[460px] z-50"
+            className="absolute bottom-full right-0 mb-2 bg-[#252526] border border-[#404040] rounded shadow-[0_4px_16px_rgba(0,0,0,0.4)] w-[660px] z-50"
           >
             <div className="px-4 py-2.5 text-[13px] text-[#888] font-semibold uppercase tracking-wider border-b border-[#404040]">
               Commit &amp; Push
@@ -435,11 +435,10 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
                   {files.length} changed file{files.length !== 1 ? "s" : ""}
                 </span>
                 <div className="flex items-center gap-3">
-                  <span className="text-[12px] text-[#555]">Cmd+Enter to submit</span>
-                  <button
+<button
                     type="button"
                     onClick={() => { setShowCommit(false); setCommitMsg(""); }}
-                    className="px-4 py-1.5 border rounded text-[13px] font-bold cursor-pointer bg-transparent text-[#888] border-[#404040] hover:text-[#ccc] hover:border-[#555]"
+                    className="flex-1 px-5 py-2 border rounded text-[13px] font-bold cursor-pointer bg-transparent text-[#888] border-[#404040] hover:text-[#ccc] hover:border-[#555] whitespace-nowrap"
                   >
                     Cancel
                   </button>
@@ -447,9 +446,23 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
                     type="button"
                     onClick={handleCommitAndPush}
                     disabled={!commitMsg.trim() || committing}
-                    className="px-4 py-1.5 border rounded text-[13px] font-bold tracking-wider cursor-pointer bg-transparent text-[#6a9955] border-[#6a9955] hover:bg-[#6a9955]/20 disabled:opacity-40 disabled:cursor-default"
+                    className="flex-1 px-5 py-2 border rounded text-[13px] font-bold tracking-wider cursor-pointer bg-transparent text-[#6a9955] border-[#6a9955] hover:bg-[#6a9955]/20 disabled:opacity-40 disabled:cursor-default whitespace-nowrap"
                   >
                     {committing ? "Pushing…" : "Commit & Push"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      invoke("pty_write", {
+                        data: "commit and push all changes\n",
+                        terminalId: "term-0",
+                      }).catch(console.error);
+                      setShowCommit(false);
+                      setCommitMsg("");
+                    }}
+                    className="flex-1 px-5 py-2 border rounded text-[13px] font-bold tracking-wider cursor-pointer bg-transparent text-[#569cd6] border-[#569cd6] hover:bg-[#569cd6]/20 whitespace-nowrap"
+                  >
+                    Send to AI
                   </button>
                 </div>
               </div>
