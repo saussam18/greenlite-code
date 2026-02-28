@@ -150,7 +150,7 @@ interface ProjectNode {
 }
 
 const IGNORED_DIRS = new Set([
-  ".git", "node_modules", "target", "dist", "build", ".next",
+  ".git", "node_modules", "target", "dist", ".next",
   ".turbo", ".cache", "__pycache__", ".DS_Store", "coverage",
 ]);
 
