@@ -1,34 +1,9 @@
 import { useState, useEffect, useCallback, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ReviewSidebar, type ChangedFile } from "./ReviewSidebar";
+import { ReviewSidebar } from "./ReviewSidebar";
 import { ReviewEditor } from "./ReviewEditor";
-import type { DiffLine, Comment, ReviewInfo } from "../types/review";
-import type { Mode } from "../types/settings";
-
-interface FileDiff {
-  old_content: string;
-  new_content: string;
-}
-
-interface CommentsData {
-  commitHash: string;
-  comments: Comment[];
-}
-
-interface GitInfo {
-  branch: string;
-  ahead: number;
-  behind: number;
-  last_commit_message: string;
-  last_commit_hash: string;
-}
-
-interface ReviewModeProps {
-  isVisible: boolean;
-  cwd: string;
-  onModeChange: (mode: Mode) => void;
-  onReviewInfo?: (info: ReviewInfo | null) => void;
-}
+import type { DiffLine, Comment, FileDiff, CommentsData, ReviewModeProps } from "../types/review";
+import type { GitInfo, ChangedFile } from "../types/git";
 
 // --- Diff algorithm (LCS-based) ---
 

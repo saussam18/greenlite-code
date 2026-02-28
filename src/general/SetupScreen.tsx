@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { TerminalCommandSetting, ProjectSettings } from "../types/settings";
+import type { TerminalCommandSetting, ProjectSettings, SetupScreenProps } from "../types/settings";
 import { getProjectSettings, saveProjectSettings } from "./settingsUtils";
 import logo from "../assets/GreenliteCodeLogo.png";
 
@@ -26,10 +26,6 @@ function saveRecentFolder(path: string, existing: string[]): string[] {
 
 function folderName(path: string): string {
   return path.split(/[/\\]/).filter(Boolean).pop() ?? path;
-}
-
-interface SetupScreenProps {
-  onSelect: (folderPath: string) => void;
 }
 
 const TERMINAL_OPTIONS: { value: TerminalCommandSetting; label: string; description: string }[] = [
