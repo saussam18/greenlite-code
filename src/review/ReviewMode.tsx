@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef, type MouseEvent as ReactMouse
 import { invoke } from "@tauri-apps/api/core";
 import { ReviewSidebar, type ChangedFile } from "./ReviewSidebar";
 import { ReviewEditor } from "./ReviewEditor";
-import type { DiffLine } from "./types";
-import type { Comment } from "./CommentThread";
+import type { DiffLine, Comment, ReviewInfo } from "../types/review";
+import type { Mode } from "../types/settings";
 
 interface FileDiff {
   old_content: string;
@@ -21,15 +21,6 @@ interface GitInfo {
   behind: number;
   last_commit_message: string;
   last_commit_hash: string;
-}
-
-type Mode = "build" | "review";
-
-export interface ReviewInfo {
-  openComments: Comment[];
-  resolvedCount: number;
-  onSendToClaude: () => void;
-  onNavigateToComment: (comment: Comment) => void;
 }
 
 interface ReviewModeProps {

@@ -1,19 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import type { Comment } from "../types/review";
 import { CommentCard, lineLabel } from "./CommentCard";
-
-export interface Comment {
-  id: string;
-  side: "old" | "new";
-  filePath: string;
-  startLine: number;
-  endLine: number;
-  startCol: number;
-  endCol: number;
-  text: string;
-  createdAt: string;
-  resolved: boolean;
-}
 
 export function CommentThread({
   comment,

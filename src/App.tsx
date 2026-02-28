@@ -1,11 +1,12 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useReducer } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { SetupScreen, getProjectSettings, saveProjectSettings, resolveTerminalCommand, type TerminalCommandSetting, type ProjectSettings } from "./general/SetupScreen";
+import type { TerminalCommandSetting, ProjectSettings, Mode } from "./types/settings";
+import type { ReviewInfo } from "./types/review";
+import { getProjectSettings, saveProjectSettings, resolveTerminalCommand } from "./general/settingsUtils";
+import { SetupScreen } from "./general/SetupScreen";
 import { BuildMode } from "./build/BuildMode";
-import { ReviewMode, type ReviewInfo } from "./review/ReviewMode";
+import { ReviewMode } from "./review/ReviewMode";
 import { StatusBar } from "./general/StatusBar";
-
-type Mode = "build" | "review";
 
 function App() {
   const [projectPath, setProjectPath] = useState<string | null>(() => {
@@ -17,7 +18,8 @@ function App() {
     return null;
   });
   const [activeMode, setActiveMode] = useState<Mode>("build");
-  const [terminalSettingVersion, setTerminalSettingVersion] = useState(0);
+  // Counter incremented after saving terminal settings to force projectSettings useMemo to re-read from localStorage
+  const [terminalSettingVersion, bumpTerminalSettingVersion] = useReducer((v: number) => v + 1, 0);
   const [reviewInfo, setReviewInfo] = useState<ReviewInfo | null>(null);
 
   const selectProject = (path: string | null) => {
@@ -48,7 +50,7 @@ function App() {
       settings.customCommand = customCmd;
     }
     saveProjectSettings(projectPath, settings);
-    setTerminalSettingVersion((v) => v + 1);
+    bumpTerminalSettingVersion();
   }, [projectPath]);
 
   if (!projectPath) {

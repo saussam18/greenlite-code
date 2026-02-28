@@ -176,7 +176,7 @@ pub fn git_checkout(repo_path: String, branch: String, new_branch: bool) -> Resu
 /// each with a two-character git status code and its file path.
 #[tauri::command]
 pub fn git_changed_files(repo_path: String) -> Result<Vec<ChangedFile>, String> {
-    let porcelain = git_cmd(&repo_path, &["status", "--porcelain"])
+    let porcelain = git_cmd(&repo_path, &["status", "--porcelain", "-uall"])
         .unwrap_or_default();
 
     let files: Vec<ChangedFile> = porcelain

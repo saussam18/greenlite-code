@@ -1,15 +1,15 @@
 import { useState, useEffect, useRef, useMemo, type MouseEvent as ReactMouseEvent } from "react";
 import { readFile, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { detectLanguage, tokenizeLine, type Language, type Token } from "../general/syntax";
-import { CommentThread, type Comment } from "./CommentThread";
+import type { Comment, DiffLine, SelectionAnchor } from "../types/review";
+import { CommentThread } from "./CommentThread";
 import { CommentCard } from "./CommentCard";
 import { MessageSquarePlus, MessageSquare } from "lucide-react";
-import type { DiffLine, SelectionAnchor } from "./types";
 import { FileEditorHeader } from "./FileEditorHeader";
 import { FileCommentPanel } from "./FileCommentPanel";
 import { ImageViewer } from "./ImageViewer";
 
-export type { DiffLine } from "./types";
+export type { DiffLine } from "../types/review";
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp"]);
 

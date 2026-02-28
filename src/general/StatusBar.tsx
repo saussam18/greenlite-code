@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { MessageSquare, ChevronDown, ChevronUp, Send, FileText } from "lucide-react";
-import type { TerminalCommandSetting } from "./SetupScreen";
-import type { ReviewInfo } from "../review/ReviewMode";
+import type { TerminalCommandSetting, Mode } from "../types/settings";
+import type { ReviewInfo } from "../types/review";
 
 interface GitInfo {
   branch: string;
@@ -17,8 +17,6 @@ interface ChangedFile {
   status: string;
   path: string;
 }
-
-type Mode = "build" | "review";
 
 interface StatusBarProps {
   repoPath: string;
@@ -461,7 +459,7 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
               onClick={reviewInfo.onSendToClaude}
               disabled={reviewInfo.openComments.length === 0}
             >
-              <Send size={13} /> Send to Claude
+              <Send size={13} /> AI Revise
             </button>
 
             <span className="text-[#404040] shrink-0">│</span>
