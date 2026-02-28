@@ -454,11 +454,12 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
                     type="button"
                     onClick={() => {
                       invoke("pty_write", {
-                        data: "commit and push all changes\n",
+                        data: "commit and push all changes",
                         terminalId: "term-0",
                       }).catch(console.error);
                       setShowCommit(false);
                       setCommitMsg("");
+                      onModeChange("build");
                     }}
                     className="flex-1 px-5 py-2 border rounded text-[13px] font-bold tracking-wider cursor-pointer bg-transparent text-[#569cd6] border-[#569cd6] hover:bg-[#569cd6]/20 whitespace-nowrap"
                   >

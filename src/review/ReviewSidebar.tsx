@@ -297,6 +297,7 @@ interface ReviewSidebarProps {
   setViewMode: (mode: "diff" | "file") => void;
   clearSelection: () => void;
   cwd: string;
+  width?: number;
 }
 
 export function ReviewSidebar({
@@ -311,6 +312,7 @@ export function ReviewSidebar({
   setViewMode,
   clearSelection,
   cwd,
+  width,
 }: ReviewSidebarProps) {
   const tree = buildTree(files);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -345,7 +347,7 @@ export function ReviewSidebar({
   };
 
   return (
-    <div className="w-[240px] min-w-[200px] bg-[#252526] border-r border-[#404040] overflow-y-auto shrink-0 flex flex-col">
+    <div className="bg-[#252526] overflow-y-auto shrink-0 flex flex-col" style={{ width: width ?? 240 }}>
       {/* Sidebar tabs */}
       <div className="flex border-b border-[#404040] shrink-0">
         <button

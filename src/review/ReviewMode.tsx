@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ReviewSidebar, type ChangedFile } from "./ReviewSidebar";
 import { ReviewEditor } from "./ReviewEditor";
@@ -141,6 +141,37 @@ export function ReviewMode({ isVisible, cwd, onModeChange }: ReviewModeProps) {
   const commentsListRef = useRef<HTMLDivElement | null>(null);
 
   const pollRef = useRef<number | null>(null);
+
+  // Draggable sidebar width
+  const [sidebarWidth, setSidebarWidth] = useState(240);
+  const draggingSidebar = useRef(false);
+  const sidebarStartX = useRef(0);
+  const sidebarStartW = useRef(0);
+
+  const handleSidebarDragStart = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    draggingSidebar.current = true;
+    sidebarStartX.current = e.clientX;
+    sidebarStartW.current = sidebarWidth;
+  };
+
+  useEffect(() => {
+    const onMouseMove = (e: globalThis.MouseEvent) => {
+      if (!draggingSidebar.current) return;
+      const delta = e.clientX - sidebarStartX.current;
+      const newWidth = Math.max(150, Math.min(600, sidebarStartW.current + delta));
+      setSidebarWidth(newWidth);
+    };
+    const onMouseUp = () => {
+      draggingSidebar.current = false;
+    };
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
 
   // Load comments from localStorage
   useEffect(() => {
@@ -388,6 +419,13 @@ export function ReviewMode({ isVisible, cwd, onModeChange }: ReviewModeProps) {
           setViewMode={setViewMode}
           clearSelection={clearSelection}
           cwd={cwd}
+          width={sidebarWidth}
+        />
+
+        {/* Draggable divider between sidebar and editor */}
+        <div
+          className="w-[5px] bg-[#404040] shrink-0 cursor-col-resize hover:bg-[#569cd6] active:bg-[#569cd6] transition-colors"
+          onMouseDown={handleSidebarDragStart}
         />
 
         <ReviewEditor

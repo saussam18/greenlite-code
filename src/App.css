@@ -3,6 +3,7 @@
 html, body {
   background: #1e1e1e;
   overflow: hidden;
+  color-scheme: dark;
 }
 
 /* xterm needs explicit height to fill its container */

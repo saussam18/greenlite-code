@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, type MouseEvent as ReactMouseEvent } from "react";
 import { readFile, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { detectLanguage, tokenizeLine, type Language, type Token } from "../general/syntax";
 import { CommentThread, type Comment } from "./CommentThread";
@@ -349,6 +349,19 @@ export function ReviewEditor({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isVisible]);
 
+  // Scroll metrics for scroll decorations viewport indicator
+  const [scrollMetrics, setScrollMetrics] = useState<Record<string, { scrollTop: number; scrollHeight: number; clientHeight: number }>>({});
+  const paneScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const handlePaneScroll = (side: "old" | "new") => {
+    const el = paneScrollRefs.current[side];
+    if (!el) return;
+    setScrollMetrics((prev) => ({
+      ...prev,
+      [side]: { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight },
+    }));
+  };
+
   // Scroll to comment when requested
   const diffContainerRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -372,6 +385,37 @@ export function ReviewEditor({
     }, 100);
     return () => clearTimeout(timer);
   }, [scrollToCommentId]);
+
+  // Draggable divider between before/after panes
+  const [leftPaneFraction, setLeftPaneFraction] = useState(0.5);
+  const draggingDiff = useRef(false);
+  const diffContainerWidth = useRef(0);
+
+  const handleDiffDragStart = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    draggingDiff.current = true;
+    if (diffContainerRef.current) {
+      diffContainerWidth.current = diffContainerRef.current.getBoundingClientRect().width;
+    }
+  };
+
+  useEffect(() => {
+    const onMouseMove = (e: globalThis.MouseEvent) => {
+      if (!draggingDiff.current || !diffContainerRef.current) return;
+      const rect = diffContainerRef.current.getBoundingClientRect();
+      const fraction = (e.clientX - rect.left) / rect.width;
+      setLeftPaneFraction(Math.max(0.15, Math.min(0.85, fraction)));
+    };
+    const onMouseUp = () => {
+      draggingDiff.current = false;
+    };
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
 
   // Line range for popover positioning
   const selMin = selNorm ? selNorm.start.line : null;
@@ -591,18 +635,98 @@ export function ReviewEditor({
     );
   };
 
-  const renderPane = (side: "old" | "new", lines: DiffLine[]) => {
+  const renderScrollDecorations = (side: "old" | "new", lines: DiffLine[]) => {
+    if (lines.length === 0) return null;
+    const total = lines.length;
+
+    // Build change regions
+    const regions: { start: number; end: number; type: "added" | "removed" }[] = [];
+    let i = 0;
+    while (i < total) {
+      const line = lines[i];
+      const isChange =
+        (side === "old" && line.type === "removed") ||
+        (side === "new" && line.type === "added");
+      if (isChange) {
+        const start = i;
+        while (
+          i < total &&
+          ((side === "old" && lines[i].type === "removed") ||
+            (side === "new" && lines[i].type === "added"))
+        ) {
+          i++;
+        }
+        regions.push({ start, end: i, type: line.type as "added" | "removed" });
+      } else {
+        i++;
+      }
+    }
+
+    // Viewport indicator
+    const metrics = scrollMetrics[side];
+    let viewportTop = 0;
+    let viewportHeight = 100;
+    if (metrics && metrics.scrollHeight > metrics.clientHeight) {
+      viewportTop = (metrics.scrollTop / metrics.scrollHeight) * 100;
+      viewportHeight = (metrics.clientHeight / metrics.scrollHeight) * 100;
+    }
+
     return (
-      <div className="flex-1 overflow-auto min-w-0 relative bg-[#1e1e1e]">
-        <div className="sticky top-0 z-10 px-3 py-1 bg-[#2d2d2d] border-b border-[#404040] text-[11px] text-[#888] font-semibold uppercase tracking-wider">
-          {side === "old" ? "Before" : "After"}
+      <div className="absolute top-0 right-0 w-[16px] h-full pointer-events-none z-20 bg-[#1a1a1a]/50">
+        {/* Change markers */}
+        {regions.map((r, idx) => {
+          const topPct = (r.start / total) * 100;
+          const heightPct = ((r.end - r.start) / total) * 100;
+          return (
+            <div
+              key={idx}
+              className="absolute right-[1px] left-[1px] rounded-sm"
+              style={{
+                top: `${topPct}%`,
+                height: `${heightPct}%`,
+                minHeight: "2px",
+                backgroundColor:
+                  r.type === "removed"
+                    ? "rgba(244, 71, 71, 0.7)"
+                    : "rgba(106, 153, 85, 0.7)",
+              }}
+            />
+          );
+        })}
+        {/* Viewport indicator */}
+        <div
+          className="absolute w-full border border-[#888]/40"
+          style={{
+            top: `${viewportTop}%`,
+            height: `${viewportHeight}%`,
+            backgroundColor: "rgba(255, 255, 255, 0.08)",
+          }}
+        />
+      </div>
+    );
+  };
+
+  const renderPane = (side: "old" | "new", lines: DiffLine[], widthPercent?: string) => {
+    return (
+      <div className="relative min-w-0 bg-[#1e1e1e]" style={{ width: widthPercent, flexShrink: 0 }}>
+        {/* Scrollable content */}
+        <div
+          ref={(el) => { paneScrollRefs.current[side] = el; }}
+          className="absolute inset-0 overflow-auto"
+          onScroll={() => handlePaneScroll(side)}
+        >
+          <div className="sticky top-0 z-10 px-3 py-1 bg-[#2d2d2d] border-b border-[#404040] text-[11px] text-[#888] font-semibold uppercase tracking-wider">
+            {side === "old" ? "Before" : "After"}
+          </div>
+          <pre className="m-0 p-0 bg-transparent">
+            <code className="block w-max min-w-full">
+              {lines.map((line, i) => renderDiffLine(side, line, i, true))}
+            </code>
+          </pre>
+          {renderCommentPopover(side)}
         </div>
-        <pre className="m-0 p-0 bg-transparent">
-          <code className="block w-max min-w-full">
-            {lines.map((line, i) => renderDiffLine(side, line, i, true))}
-          </code>
-        </pre>
-        {renderCommentPopover(side)}
+        {/* Fixed scroll decorations overlay */}
+        {renderScrollDecorations(side, lines)}
       </div>
     );
   };
@@ -732,11 +856,16 @@ export function ReviewEditor({
     }
 
     if (diff) {
+      const leftPct = `${leftPaneFraction * 100}%`;
+      const rightPct = `${(1 - leftPaneFraction) * 100}%`;
       return (
         <div ref={diffContainerRef} className="flex flex-1 overflow-hidden min-h-0">
-          {renderPane("old", diff.left)}
-          <div className="w-px bg-[#404040] shrink-0" />
-          {renderPane("new", diff.right)}
+          {renderPane("old", diff.left, leftPct)}
+          <div
+            className="w-[5px] bg-[#404040] shrink-0 cursor-col-resize hover:bg-[#569cd6] active:bg-[#569cd6] transition-colors"
+            onMouseDown={handleDiffDragStart}
+          />
+          {renderPane("new", diff.right, rightPct)}
         </div>
       );
     }
