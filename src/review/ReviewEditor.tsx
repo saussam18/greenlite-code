@@ -1,19 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { readFile, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
-import { detectLanguage, tokenizeLine, type Language } from "../general/syntax";
+import { detectLanguage, tokenizeLine, type Language, type Token } from "../general/syntax";
 import { CommentThread, type Comment } from "./CommentThread";
+import { MessageSquarePlus, MessageSquare } from "lucide-react";
+import type { DiffLine, SelectionAnchor } from "./types";
 
-export interface DiffLine {
-  type: "unchanged" | "added" | "removed";
-  text: string;
-  oldLineNum?: number;
-  newLineNum?: number;
-}
-
-interface SelectionAnchor {
-  line: number;
-  col: number;
-}
+export type { DiffLine } from "./types";
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp"]);
 
@@ -58,6 +50,49 @@ interface ReviewEditorProps {
   onUnresolveComment: (id: string) => void;
   cwd: string;
   isVisible: boolean;
+  scrollToCommentId: string | null;
+  onScrolledToComment: () => void;
+}
+
+function FileEditorHeader({
+  filePath,
+  cwd,
+  isDirty,
+  saveStatus,
+  isImage,
+}: {
+  filePath: string;
+  cwd: string;
+  isDirty: boolean;
+  saveStatus: string | null;
+  isImage: boolean;
+}) {
+  return (
+    <div className="sticky top-0 z-10 px-3 py-1 bg-[#2d2d2d] border-b border-[#404040] text-[11px] text-[#888] font-semibold flex items-center gap-2 shrink-0">
+      <span className="truncate">{filePath.replace(cwd + "/", "")}</span>
+      {isDirty && <span className="text-[#dcdcaa]">(unsaved)</span>}
+      {saveStatus && (
+        <span className={saveStatus === "Saved" ? "text-[#6a9955]" : "text-[#f44747]"}>
+          {saveStatus}
+        </span>
+      )}
+      {!isImage && (
+        <span className="ml-auto text-[10px] text-[#555]">Cmd+S to save</span>
+      )}
+    </div>
+  );
+}
+
+function ImageViewer({ src, alt }: { src: string; alt: string }) {
+  return (
+    <div className="flex-1 flex items-center justify-center overflow-auto p-4">
+      <img
+        src={src}
+        alt={alt}
+        className="max-w-full max-h-full object-contain"
+      />
+    </div>
+  );
 }
 
 export function ReviewEditor({
@@ -74,6 +109,8 @@ export function ReviewEditor({
   onUnresolveComment,
   cwd,
   isVisible,
+  scrollToCommentId,
+  onScrolledToComment,
 }: ReviewEditorProps) {
   // File editor state
   const [fileContent, setFileContent] = useState<string | null>(null);
@@ -305,6 +342,30 @@ export function ReviewEditor({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isVisible]);
 
+  // Scroll to comment when requested
+  const diffContainerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!scrollToCommentId) return;
+    const comment = comments.find((c) => c.id === scrollToCommentId);
+    if (!comment) return;
+    // Wait a tick for DOM to render after file switch
+    const timer = setTimeout(() => {
+      const container = diffContainerRef.current;
+      if (!container) { onScrolledToComment(); return; }
+      const side = comment.side;
+      const lineNum = comment.startLine;
+      const el = container.querySelector(`[data-line-${side}="${lineNum}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        // Flash highlight
+        el.classList.add("!bg-[rgba(78,154,6,0.25)]");
+        setTimeout(() => el.classList.remove("!bg-[rgba(78,154,6,0.25)]"), 1500);
+      }
+      onScrolledToComment();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [scrollToCommentId]);
+
   // Line range for popover positioning
   const selMin = selNorm ? selNorm.start.line : null;
   const selMax = selNorm ? selNorm.end.line : null;
@@ -315,8 +376,19 @@ export function ReviewEditor({
     [activePath]
   );
 
-  const renderHighlightedLine = (text: string) => {
+  // Cache tokenization results so selection changes don't re-tokenize every line
+  const tokenCache = useMemo(() => new Map<string, Token[]>(), [lang]);
+
+  const getTokens = (text: string): Token[] => {
+    const cached = tokenCache.get(text);
+    if (cached) return cached;
     const tokens = tokenizeLine(text, lang);
+    tokenCache.set(text, tokens);
+    return tokens;
+  };
+
+  const renderHighlightedLine = (text: string) => {
+    const tokens = getTokens(text);
     return tokens.map((t, i) => (
       <span key={i} style={{ color: t.color }}>
         {t.text}
@@ -369,11 +441,11 @@ export function ReviewEditor({
       >
         {!showCommentInput ? (
           <button
-            className="w-7 h-7 flex items-center justify-center border border-[#4e9a06] rounded bg-[#2d2d30] text-[#4e9a06] cursor-pointer text-[16px] hover:bg-[#3c3c3c]"
+            className="w-7 h-7 flex items-center justify-center border border-[#4e9a06] rounded bg-[#2d2d30] text-[#4e9a06] cursor-pointer hover:bg-[#3c3c3c]"
             onClick={handleAddComment}
             title={`Comment on L${selMin}${selMin !== selMax ? `–L${selMax}` : ""}`}
           >
-            +
+            <MessageSquarePlus size={15} />
           </button>
         ) : (
           <div className="bg-[#2d2d30] border border-[#4e9a06] rounded-md p-2 w-80 shadow-[0_4px_16px_rgba(0,0,0,0.4)]">
@@ -440,10 +512,14 @@ export function ReviewEditor({
       ? comment.resolved ? "hover:text-[#999]" : "hover:text-[#73d216]"
       : "";
 
+    const lineDataAttrs: Record<string, string> = {};
+    if (lineNum != null) lineDataAttrs[`data-line-${side}`] = String(lineNum);
+
     return (
       <div key={i}>
         <div
-          className={`flex items-stretch min-h-[21px] leading-[21px] select-none ${
+          {...lineDataAttrs}
+          className={`flex items-stretch min-h-[21px] leading-[21px] select-none transition-colors duration-300 ${
             isSpacer ? "bg-[rgba(128,128,128,0.04)]" : ""
           } ${bgClass} ${lineNum != null ? "cursor-text hover:bg-white/[0.03]" : ""}`}
           onMouseDown={(e) => {
@@ -462,11 +538,11 @@ export function ReviewEditor({
           <span className="inline-flex items-center justify-end w-[50px] min-w-[50px] pr-2 font-mono text-[13px] text-[#555] text-right shrink-0 gap-1">
             {comment ? (
               <span
-                className={`${gutterDotColor} cursor-pointer text-[14px] leading-none shrink-0 ${gutterDotHover}`}
+                className={`${gutterDotColor} cursor-pointer leading-none shrink-0 ${gutterDotHover}`}
                 onClick={(e) => handleGutterDotClick(e, comment)}
                 title={comment.text}
               >
-                ●
+                <MessageSquare size={12} />
               </span>
             ) : null}
             {lineNum ?? ""}
@@ -494,7 +570,7 @@ export function ReviewEditor({
   const renderPlainPane = (label: string, content: string, side: "old" | "new") => {
     const lines = content.split("\n");
     return (
-      <div className="flex-1 overflow-auto min-w-0 relative bg-[#1e1e1e]">
+      <div ref={diffContainerRef} className="flex-1 overflow-auto min-w-0 relative bg-[#1e1e1e]">
         <div className="sticky top-0 z-10 px-3 py-1 bg-[#2d2d2d] border-b border-[#404040] text-[11px] text-[#888] font-semibold uppercase tracking-wider">
           {label}
         </div>
@@ -524,6 +600,129 @@ export function ReviewEditor({
     );
   };
 
+  const renderFileEditorBody = () => {
+    if (fileError) {
+      return (
+        <div className="flex-1 flex items-center justify-center text-[#f44747] text-sm px-4 text-center">
+          {fileError}
+        </div>
+      );
+    }
+
+    if (imageDataUrl) {
+      return <ImageViewer src={imageDataUrl} alt={browseSelectedFile!.split("/").pop() || ""} />;
+    }
+
+    if (fileContent !== null) {
+      return (
+        <div className="flex-1 flex overflow-hidden min-h-0">
+          {/* Line numbers */}
+          <div
+            ref={lineNumRef}
+            className="w-[50px] min-w-[50px] overflow-hidden bg-[#1e1e1e] shrink-0 select-none"
+          >
+            {editContent.split("\n").map((_, i) => (
+              <div
+                key={i}
+                className="h-[21px] leading-[21px] text-right pr-2 font-mono text-[13px] text-[#555]"
+              >
+                {i + 1}
+              </div>
+            ))}
+          </div>
+          {/* Code area with syntax highlight + textarea overlay */}
+          <div className="flex-1 relative overflow-hidden min-w-0">
+            <pre
+              ref={highlightRef}
+              className="absolute inset-0 m-0 p-0 bg-transparent overflow-hidden pointer-events-none"
+            >
+              <code className="block">
+                {editContent.split("\n").map((line, i) => (
+                  <div
+                    key={i}
+                    className="h-[21px] leading-[21px] pl-2 pr-2 font-mono text-[13px] whitespace-pre"
+                  >
+                    {line ? renderHighlightedLine(line) : " "}
+                  </div>
+                ))}
+              </code>
+            </pre>
+            <textarea
+              ref={editorRef}
+              className="absolute inset-0 w-full h-full font-mono text-[13px] leading-[21px] bg-transparent text-transparent resize-none outline-none border-none pl-2 pr-2"
+              style={{ caretColor: "#d4d4d4" }}
+              value={editContent}
+              onChange={(e) => {
+                setEditContent(e.target.value);
+                setIsDirty(e.target.value !== fileContent);
+              }}
+              onScroll={() => {
+                if (editorRef.current && highlightRef.current) {
+                  highlightRef.current.scrollTop = editorRef.current.scrollTop;
+                  highlightRef.current.scrollLeft = editorRef.current.scrollLeft;
+                }
+                if (editorRef.current && lineNumRef.current) {
+                  lineNumRef.current.scrollTop = editorRef.current.scrollTop;
+                }
+              }}
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="off"
+              wrap="off"
+            />
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex-1 flex items-center justify-center text-[#555] text-sm">
+        Loading...
+      </div>
+    );
+  };
+
+  const renderContent = () => {
+    if (viewMode === "file" && browseSelectedFile) {
+      return (
+        <div className="flex-1 overflow-hidden min-w-0 flex flex-col bg-[#1e1e1e]">
+          <FileEditorHeader
+            filePath={browseSelectedFile}
+            cwd={cwd}
+            isDirty={isDirty}
+            saveStatus={saveStatus}
+            isImage={isImageFile(browseSelectedFile)}
+          />
+          {renderFileEditorBody()}
+        </div>
+      );
+    }
+
+    if (plainContent !== null) {
+      return renderPlainPane(
+        selectedStatus === "D" ? "Deleted" : "Added",
+        plainContent,
+        selectedStatus === "D" ? "old" : "new"
+      );
+    }
+
+    if (diff) {
+      return (
+        <div ref={diffContainerRef} className="flex flex-1 overflow-hidden min-h-0">
+          {renderPane("old", diff.left)}
+          <div className="w-px bg-[#404040] shrink-0" />
+          {renderPane("new", diff.right)}
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex-1 flex items-center justify-center text-[#555] text-sm bg-[#1e1e1e]">
+        {selectedFile ? "Loading..." : "Select a file to view changes"}
+      </div>
+    );
+  };
+
   return (
     <>
       {/* Hidden span to measure monospace char width */}
@@ -534,115 +733,7 @@ export function ReviewEditor({
       >
         M
       </span>
-
-      {viewMode === "file" && browseSelectedFile ? (
-        <div className="flex-1 overflow-hidden min-w-0 flex flex-col bg-[#1e1e1e]">
-          {/* File editor header */}
-          <div className="sticky top-0 z-10 px-3 py-1 bg-[#2d2d2d] border-b border-[#404040] text-[11px] text-[#888] font-semibold flex items-center gap-2 shrink-0">
-            <span className="truncate">{browseSelectedFile.replace(cwd + "/", "")}</span>
-            {isDirty && <span className="text-[#dcdcaa]">(unsaved)</span>}
-            {saveStatus && (
-              <span className={saveStatus === "Saved" ? "text-[#6a9955]" : "text-[#f44747]"}>
-                {saveStatus}
-              </span>
-            )}
-            {!isImageFile(browseSelectedFile) && (
-              <span className="ml-auto text-[10px] text-[#555]">Cmd+S to save</span>
-            )}
-          </div>
-          {fileError ? (
-            <div className="flex-1 flex items-center justify-center text-[#f44747] text-sm px-4 text-center">
-              {fileError}
-            </div>
-          ) : imageDataUrl ? (
-            <div className="flex-1 flex items-center justify-center overflow-auto p-4">
-              <img
-                src={imageDataUrl}
-                alt={browseSelectedFile.split("/").pop() || ""}
-                className="max-w-full max-h-full object-contain"
-              />
-            </div>
-          ) : fileContent !== null ? (
-            <div className="flex-1 flex overflow-hidden min-h-0">
-              {/* Line numbers */}
-              <div
-                ref={lineNumRef}
-                className="w-[50px] min-w-[50px] overflow-hidden bg-[#1e1e1e] shrink-0 select-none"
-              >
-                {editContent.split("\n").map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-[21px] leading-[21px] text-right pr-2 font-mono text-[13px] text-[#555]"
-                  >
-                    {i + 1}
-                  </div>
-                ))}
-              </div>
-              {/* Code area with syntax highlight + textarea overlay */}
-              <div className="flex-1 relative overflow-hidden min-w-0">
-                <pre
-                  ref={highlightRef}
-                  className="absolute inset-0 m-0 p-0 bg-transparent overflow-hidden pointer-events-none"
-                >
-                  <code className="block">
-                    {editContent.split("\n").map((line, i) => (
-                      <div
-                        key={i}
-                        className="h-[21px] leading-[21px] pl-2 pr-2 font-mono text-[13px] whitespace-pre"
-                      >
-                        {line ? renderHighlightedLine(line) : " "}
-                      </div>
-                    ))}
-                  </code>
-                </pre>
-                <textarea
-                  ref={editorRef}
-                  className="absolute inset-0 w-full h-full font-mono text-[13px] leading-[21px] bg-transparent text-transparent resize-none outline-none border-none pl-2 pr-2"
-                  style={{ caretColor: "#d4d4d4" }}
-                  value={editContent}
-                  onChange={(e) => {
-                    setEditContent(e.target.value);
-                    setIsDirty(e.target.value !== fileContent);
-                  }}
-                  onScroll={() => {
-                    if (editorRef.current && highlightRef.current) {
-                      highlightRef.current.scrollTop = editorRef.current.scrollTop;
-                      highlightRef.current.scrollLeft = editorRef.current.scrollLeft;
-                    }
-                    if (editorRef.current && lineNumRef.current) {
-                      lineNumRef.current.scrollTop = editorRef.current.scrollTop;
-                    }
-                  }}
-                  spellCheck={false}
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  wrap="off"
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-[#555] text-sm">
-              Loading...
-            </div>
-          )}
-        </div>
-      ) : plainContent !== null ? (
-        renderPlainPane(
-          selectedStatus === "D" ? "Deleted" : "Added",
-          plainContent,
-          selectedStatus === "D" ? "old" : "new"
-        )
-      ) : diff ? (
-        <div className="flex flex-1 overflow-hidden min-h-0">
-          {renderPane("old", diff.left)}
-          <div className="w-px bg-[#404040] shrink-0" />
-          {renderPane("new", diff.right)}
-        </div>
-      ) : (
-        <div className="flex-1 flex items-center justify-center text-[#555] text-sm bg-[#1e1e1e]">
-          {selectedFile ? "Loading..." : "Select a file to view changes"}
-        </div>
-      )}
+      {renderContent()}
     </>
   );
 }

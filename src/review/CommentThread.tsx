@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ChevronDown, ChevronRight, Check, Undo2, Trash2 } from "lucide-react";
 
 export interface Comment {
   id: string;
@@ -38,7 +39,7 @@ export function CommentThread({
         className="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer hover:bg-white/[0.03] select-none"
         onClick={() => setCollapsed(!collapsed)}
       >
-        <span className="text-[10px] text-[#888] w-3 shrink-0">{collapsed ? "▶" : "▼"}</span>
+        {collapsed ? <ChevronRight size={12} className="shrink-0 text-[#888]" /> : <ChevronDown size={12} className="shrink-0 text-[#888]" />}
         {comment.resolved && (
           <span className="text-[10px] font-semibold uppercase tracking-wider text-[#888] bg-[#3c3c3c] rounded px-1.5 py-0.5">
             Resolved
@@ -72,24 +73,24 @@ export function CommentThread({
           <div className="flex gap-1.5 mt-2">
             {comment.resolved ? (
               <button
-                className="px-2 py-0.5 border border-[#555] rounded-sm bg-transparent text-[#4e9a06] cursor-pointer text-[11px] hover:bg-[rgba(78,154,6,0.15)]"
+                className="flex items-center gap-1 px-2 py-0.5 border border-[#555] rounded-sm bg-transparent text-[#4e9a06] cursor-pointer text-[11px] hover:bg-[rgba(78,154,6,0.15)]"
                 onClick={() => onUnresolve(comment.id)}
               >
-                Unresolve
+                <Undo2 size={11} /> Unresolve
               </button>
             ) : (
               <button
-                className="px-2 py-0.5 border border-[#4e9a06] rounded-sm bg-transparent text-[#4e9a06] cursor-pointer text-[11px] hover:bg-[rgba(78,154,6,0.15)]"
+                className="flex items-center gap-1 px-2 py-0.5 border border-[#4e9a06] rounded-sm bg-transparent text-[#4e9a06] cursor-pointer text-[11px] hover:bg-[rgba(78,154,6,0.15)]"
                 onClick={() => onResolve(comment.id)}
               >
-                Resolve
+                <Check size={11} /> Resolve
               </button>
             )}
             <button
-              className="px-2 py-0.5 border border-[#555] rounded-sm bg-transparent text-[#f44747] cursor-pointer text-[11px] hover:bg-[rgba(244,71,71,0.15)]"
+              className="flex items-center gap-1 px-2 py-0.5 border border-[#555] rounded-sm bg-transparent text-[#f44747] cursor-pointer text-[11px] hover:bg-[rgba(244,71,71,0.15)]"
               onClick={() => onDelete(comment.id)}
             >
-              Delete
+              <Trash2 size={11} /> Delete
             </button>
           </div>
         </div>
