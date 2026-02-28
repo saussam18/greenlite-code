@@ -4,6 +4,9 @@ import { detectLanguage, tokenizeLine, type Language, type Token } from "../gene
 import { CommentThread, type Comment } from "./CommentThread";
 import { MessageSquarePlus, MessageSquare } from "lucide-react";
 import type { DiffLine, SelectionAnchor } from "./types";
+import { FileEditorHeader } from "./FileEditorHeader";
+import { FileCommentPanel } from "./FileCommentPanel";
+import { ImageViewer } from "./ImageViewer";
 
 export type { DiffLine } from "./types";
 
@@ -52,47 +55,6 @@ interface ReviewEditorProps {
   isVisible: boolean;
   scrollToCommentId: string | null;
   onScrolledToComment: () => void;
-}
-
-function FileEditorHeader({
-  filePath,
-  cwd,
-  isDirty,
-  saveStatus,
-  isImage,
-}: {
-  filePath: string;
-  cwd: string;
-  isDirty: boolean;
-  saveStatus: string | null;
-  isImage: boolean;
-}) {
-  return (
-    <div className="sticky top-0 z-10 px-3 py-1 bg-[#2d2d2d] border-b border-[#404040] text-[11px] text-[#888] font-semibold flex items-center gap-2 shrink-0">
-      <span className="truncate">{filePath.replace(cwd + "/", "")}</span>
-      {isDirty && <span className="text-[#dcdcaa]">(unsaved)</span>}
-      {saveStatus && (
-        <span className={saveStatus === "Saved" ? "text-[#6a9955]" : "text-[#f44747]"}>
-          {saveStatus}
-        </span>
-      )}
-      {!isImage && (
-        <span className="ml-auto text-[10px] text-[#555]">Cmd+S to save</span>
-      )}
-    </div>
-  );
-}
-
-function ImageViewer({ src, alt }: { src: string; alt: string }) {
-  return (
-    <div className="flex-1 flex items-center justify-center overflow-auto p-4">
-      <img
-        src={src}
-        alt={alt}
-        className="max-w-full max-h-full object-contain"
-      />
-    </div>
-  );
 }
 
 export function ReviewEditor({
@@ -749,40 +711,13 @@ export function ReviewEditor({
           />
           {renderFileEditorBody()}
           {fileCommentLine !== null && (
-            <div className="shrink-0 border-t border-[#404040] bg-[#252526] p-3">
-              <div className="text-[11px] text-[#888] mb-1.5">
-                Comment on line {fileCommentLine}
-              </div>
-              <textarea
-                className="w-full min-h-[60px] px-2 py-1.5 border border-[#555] rounded bg-[#1e1e1e] text-[#d4d4d4] font-mono text-[13px] resize-y outline-none focus:border-[#4e9a06]"
-                placeholder="Add a comment..."
-                value={fileCommentText}
-                onChange={(e) => setFileCommentText(e.target.value)}
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleFileCommentSubmit();
-                  if (e.key === "Escape") { setFileCommentLine(null); setFileCommentText(""); }
-                }}
-              />
-              <div className="flex items-center justify-between mt-1.5">
-                <span className="text-[10px] text-[#555]">Cmd+Enter to submit</span>
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={() => { setFileCommentLine(null); setFileCommentText(""); }}
-                    className="px-3 py-1 border border-[#555] rounded bg-[#3c3c3c] text-[#d4d4d4] cursor-pointer text-xs hover:bg-[#4a4a4a]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleFileCommentSubmit}
-                    disabled={!fileCommentText.trim()}
-                    className="px-3 py-1 border border-[#4e9a06] rounded bg-[#2e6b30] text-[#e0e0e0] cursor-pointer text-xs hover:bg-[#3a8a3c] disabled:opacity-40 disabled:cursor-default"
-                  >
-                    Add
-                  </button>
-                </div>
-              </div>
-            </div>
+            <FileCommentPanel
+              line={fileCommentLine}
+              text={fileCommentText}
+              onTextChange={setFileCommentText}
+              onSubmit={handleFileCommentSubmit}
+              onCancel={() => { setFileCommentLine(null); setFileCommentText(""); }}
+            />
           )}
         </div>
       );
