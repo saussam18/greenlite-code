@@ -15,3 +15,7 @@ html, body {
 .terminal-container .xterm-screen {
   height: 100% !important;
 }
+
+@keyframes blink {
+  50% { opacity: 0; }
+}

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, type MouseEvent as ReactMouseEven
 import { readFile, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { detectLanguage, tokenizeLine, type Language, type Token } from "../general/syntax";
 import { CommentThread, type Comment } from "./CommentThread";
+import { CommentCard } from "./CommentCard";
 import { MessageSquarePlus, MessageSquare } from "lucide-react";
 import type { DiffLine, SelectionAnchor } from "./types";
 import { FileEditorHeader } from "./FileEditorHeader";
@@ -84,6 +85,12 @@ export function ReviewEditor({
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const lineNumRef = useRef<HTMLDivElement | null>(null);
   const highlightRef = useRef<HTMLPreElement | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+
+  // File view comment (supports multi-line range)
+  const [fileCommentStartLine, setFileCommentStartLine] = useState<number | null>(null);
+  const [fileCommentEndLine, setFileCommentEndLine] = useState<number | null>(null);
+  const [fileCommentText, setFileCommentText] = useState("");
 
   // Selection state (column-aware)
   const [selectingSide, setSelectingSide] = useState<"old" | "new" | null>(null);
@@ -104,12 +111,12 @@ export function ReviewEditor({
   const [commentInput, setCommentInput] = useState("");
   const [showCommentInput, setShowCommentInput] = useState(false);
 
-  // File view comment
-  const [fileCommentLine, setFileCommentLine] = useState<number | null>(null);
-  const [fileCommentText, setFileCommentText] = useState("");
-
   // Track which inline threads are collapsed
   const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(new Set());
+
+  // Read-only toast for diff view
+  const [readOnlyToast, setReadOnlyToast] = useState(false);
+  const readOnlyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Visual row index of selection end (for popover positioning in diff view)
   const [selEndRow, setSelEndRow] = useState<number | null>(null);
@@ -192,8 +199,11 @@ export function ReviewEditor({
     return { startCol: 0, endCol: lineLength };
   };
 
-  const fileComments = selectedFile
-    ? comments.filter((c) => c.filePath === selectedFile)
+  const browseRelativePath = browseSelectedFile ? browseSelectedFile.replace(cwd + "/", "") : null;
+  const activeFilePath = selectedFile || browseRelativePath;
+
+  const fileComments = activeFilePath
+    ? comments.filter((c) => c.filePath === activeFilePath)
     : [];
 
   const findComment = (side: "old" | "new", lineNum: number): Comment | undefined => {
@@ -259,18 +269,27 @@ export function ReviewEditor({
   };
 
   const handleFileCommentSubmit = () => {
-    if (!fileCommentText.trim() || fileCommentLine === null || !browseSelectedFile) return;
+    if (!fileCommentText.trim() || fileCommentStartLine === null || fileCommentEndLine === null || !browseSelectedFile) return;
     const relativePath = browseSelectedFile.replace(cwd + "/", "");
+    const startLine = Math.min(fileCommentStartLine, fileCommentEndLine);
+    const endLine = Math.max(fileCommentStartLine, fileCommentEndLine);
     onAddComment(createComment(
       fileCommentText.trim(),
       relativePath,
       "new",
-      fileCommentLine,
-      fileCommentLine,
+      startLine,
+      endLine,
       0,
       Infinity,
     ));
-    setFileCommentLine(null);
+    setFileCommentStartLine(null);
+    setFileCommentEndLine(null);
+    setFileCommentText("");
+  };
+
+  const closeFileComment = () => {
+    setFileCommentStartLine(null);
+    setFileCommentEndLine(null);
     setFileCommentText("");
   };
 
@@ -285,7 +304,8 @@ export function ReviewEditor({
       return;
     }
     // Clear file comment when switching files
-    setFileCommentLine(null);
+    setFileCommentStartLine(null);
+    setFileCommentEndLine(null);
     setFileCommentText("");
     setFileError(null);
     setFileContent(null);
@@ -339,15 +359,21 @@ export function ReviewEditor({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isVisible, viewMode, browseSelectedFile, editContent]);
 
-  // Escape key
+  // Escape key + read-only toast for diff view typing
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isVisible) return;
       if (e.key === "Escape") clearSelection();
+      // Show read-only toast when typing in diff view
+      if (viewMode === "diff" && selectingSide && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.length === 1) {
+        if (readOnlyTimer.current) clearTimeout(readOnlyTimer.current);
+        setReadOnlyToast(true);
+        readOnlyTimer.current = setTimeout(() => setReadOnlyToast(false), 2000);
+      }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isVisible]);
+  }, [isVisible, viewMode, selectingSide]);
 
   // Scroll metrics for scroll decorations viewport indicator
   const [scrollMetrics, setScrollMetrics] = useState<Record<string, { scrollTop: number; scrollHeight: number; clientHeight: number }>>({});
@@ -370,18 +396,46 @@ export function ReviewEditor({
     if (!comment) return;
     // Wait a tick for DOM to render after file switch
     const timer = setTimeout(() => {
-      const container = diffContainerRef.current;
-      if (!container) { onScrolledToComment(); return; }
-      const side = comment.side;
-      const lineNum = comment.startLine;
-      const el = container.querySelector(`[data-line-${side}="${lineNum}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        // Flash highlight
-        el.classList.add("!bg-[rgba(78,154,6,0.25)]");
-        setTimeout(() => el.classList.remove("!bg-[rgba(78,154,6,0.25)]"), 1500);
+      if (viewMode === "file") {
+        // File browse mode — scroll to the line and show the overlay
+        setFileCommentStartLine(null);
+        setFileCommentEndLine(null);
+        if (editorRef.current) {
+          const lineHeight = 21;
+          const targetScroll = (comment.startLine - 1) * lineHeight - editorRef.current.clientHeight / 2 + lineHeight;
+          editorRef.current.scrollTop = Math.max(0, targetScroll);
+          if (highlightRef.current) {
+            highlightRef.current.scrollTop = editorRef.current.scrollTop;
+          }
+          if (lineNumRef.current) {
+            lineNumRef.current.scrollTop = editorRef.current.scrollTop;
+          }
+          if (overlayRef.current) {
+            overlayRef.current.scrollTop = editorRef.current.scrollTop;
+          }
+        }
+        // Make sure the overlay is visible (not collapsed)
+        setCollapsedThreads((prev) => {
+          const next = new Set(prev);
+          next.delete(comment.id);
+          return next;
+        });
+        onScrolledToComment();
+      } else {
+        // Diff mode
+        const container = diffContainerRef.current;
+        if (!container) { onScrolledToComment(); return; }
+        const side = comment.side;
+        const lineNum = comment.startLine;
+        const el = container.querySelector(`[data-line-${side}="${lineNum}"]`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          // Flash highlight
+          el.classList.add("!bg-[rgba(78,154,6,0.25)]");
+          setTimeout(() => el.classList.remove("!bg-[rgba(78,154,6,0.25)]"), 1500);
+        }
+        onScrolledToComment();
       }
-      onScrolledToComment();
     }, 100);
     return () => clearTimeout(timer);
   }, [scrollToCommentId]);
@@ -484,19 +538,28 @@ export function ReviewEditor({
   };
 
   const renderCommentPopover = (side: "old" | "new") => {
-    if (selectingSide !== side || selMin === null || selMax === null || selEndRow === null || isSelecting || !selNorm) return null;
+    if (selectingSide !== side || selMin === null || selMax === null || selEndRow === null || isSelecting || !selNorm || !selectionEnd || !selectionStart) return null;
+    // Place button on the side opposite to the highlight
+    const endAfterStart = selectionEnd.line > selectionStart.line ||
+      (selectionEnd.line === selectionStart.line && selectionEnd.col >= selectionStart.col);
+    const charW = charWidthRef.current || 7.8;
+    const cursorX = 50 + 8 + selectionEnd.col * charW; // gutter(50) + padding(8px/0.5rem) + col * charWidth
+    const buttonLeft = endAfterStart
+      ? `${cursorX + 2}px`
+      : `${cursorX - 22}px`;
+    const topPx = selEndRow * 21 + 24; // row * lineHeight + sticky header
     return (
       <div
-        className="absolute z-20"
-        style={{ top: `${(selEndRow + 1) * 21 + 28}px`, left: `min(calc(50px + 0.5rem + ${selNorm.end.col}ch), calc(100% - ${showCommentInput ? '21rem' : '2.5rem'}))` }}
+        className="absolute z-30 flex items-start"
+        style={{ top: `${topPx}px`, left: buttonLeft }}
       >
         {!showCommentInput ? (
           <button
-            className="w-7 h-7 flex items-center justify-center border border-[#4e9a06] rounded bg-[#2d2d30] text-[#4e9a06] cursor-pointer hover:bg-[#3c3c3c]"
+            className="w-5 h-5 flex items-center justify-center rounded-full bg-[#2d2d30] text-[#4e9a06] cursor-pointer hover:text-[#73d216] hover:bg-[#3c3c3c] p-0 leading-none shadow-[0_1px_4px_rgba(0,0,0,0.5)]"
             onClick={handleAddComment}
             title={`Comment on L${selMin}${selMin !== selMax ? `–L${selMax}` : ""}`}
           >
-            <MessageSquarePlus size={15} />
+            <MessageSquarePlus size={12} />
           </button>
         ) : (
           <div className="bg-[#2d2d30] border border-[#4e9a06] rounded-md p-2 w-80 shadow-[0_4px_16px_rgba(0,0,0,0.4)]">
@@ -609,6 +672,13 @@ export function ReviewEditor({
               commentHL,
               comment!.resolved ? "rgba(128,128,128,0.05)" : "rgba(78,154,6,0.08)",
               lineLength
+            )}
+            {/* Blinking cursor at selection end */}
+            {selectingSide === side && selectionEnd && selectionEnd.line === lineNum && !isSelecting && (
+              <span
+                className="absolute top-0 bottom-0 w-[1.5px] bg-[#d4d4d4] animate-[blink_1s_step-end_infinite] pointer-events-none z-10"
+                style={{ left: `calc(0.5rem + ${selectionEnd.col}ch)` }}
+              />
             )}
             {isSpacer ? " " : line.text ? renderHighlightedLine(line.text) : " "}
           </span>
@@ -745,39 +815,84 @@ export function ReviewEditor({
     }
 
     if (fileContent !== null) {
+      const fileLines = editContent.split("\n");
+      const visibleComments = fileComments.filter((c) => !collapsedThreads.has(c.id));
+
+      const syncScroll = () => {
+        if (!editorRef.current) return;
+        const { scrollTop, scrollLeft } = editorRef.current;
+        if (highlightRef.current) {
+          highlightRef.current.scrollTop = scrollTop;
+          highlightRef.current.scrollLeft = scrollLeft;
+        }
+        if (lineNumRef.current) {
+          lineNumRef.current.scrollTop = scrollTop;
+        }
+        if (overlayRef.current) {
+          overlayRef.current.scrollTop = scrollTop;
+        }
+      };
+
       return (
         <div className="flex-1 flex overflow-hidden min-h-0">
-          {/* Line numbers */}
+          {/* Line numbers with comment icons */}
           <div
             ref={lineNumRef}
             className="w-[50px] min-w-[50px] overflow-hidden bg-[#1e1e1e] shrink-0 select-none"
           >
-            {editContent.split("\n").map((_, i) => (
-              <div
-                key={i}
-                className="group h-[21px] leading-[21px] pr-2 font-mono text-[13px] text-[#555] flex items-center"
-              >
-                <span
-                  className="w-[16px] flex items-center justify-center opacity-0 group-hover:opacity-60 hover:!opacity-100 cursor-pointer hover:!text-[#4e9a06] shrink-0"
-                  onClick={() => {
-                    setFileCommentLine(i + 1);
-                    setFileCommentText("");
-                  }}
+            {fileLines.map((_, i) => {
+              const lineNum = i + 1;
+              const comment = findComment("new", lineNum);
+              const isInRange = fileCommentStartLine !== null && fileCommentEndLine !== null &&
+                lineNum >= Math.min(fileCommentStartLine, fileCommentEndLine) &&
+                lineNum <= Math.max(fileCommentStartLine, fileCommentEndLine);
+              return (
+                <div
+                  key={i}
+                  className={`group h-[21px] leading-[21px] pr-2 font-mono text-[13px] text-[#555] flex items-center ${
+                    isInRange ? "bg-[rgba(78,154,6,0.12)]" : ""
+                  }`}
                 >
-                  <MessageSquarePlus size={11} />
-                </span>
-                <span className="flex-1 text-right">{i + 1}</span>
-              </div>
-            ))}
+                  {comment ? (
+                    <span
+                      className={`w-[16px] flex items-center justify-center shrink-0 cursor-pointer ${
+                        comment.resolved ? "text-[#666] hover:text-[#999]" : "text-[#4e9a06] hover:text-[#73d216]"
+                      }`}
+                      onClick={() => handleGutterDotClick({ stopPropagation: () => {} } as React.MouseEvent, comment)}
+                      title={collapsedThreads.has(comment.id) ? comment.text : "Click to collapse"}
+                    >
+                      <MessageSquare size={11} />
+                    </span>
+                  ) : (
+                    <span
+                      className="w-[16px] flex items-center justify-center opacity-0 group-hover:opacity-60 hover:!opacity-100 cursor-pointer hover:!text-[#4e9a06] shrink-0"
+                      onClick={(e) => {
+                        if (e.shiftKey && fileCommentStartLine !== null) {
+                          setFileCommentEndLine(lineNum);
+                        } else {
+                          setFileCommentStartLine(lineNum);
+                          setFileCommentEndLine(lineNum);
+                          setFileCommentText("");
+                        }
+                      }}
+                    >
+                      <MessageSquarePlus size={11} />
+                    </span>
+                  )}
+                  <span className="flex-1 text-right">{lineNum}</span>
+                </div>
+              );
+            })}
           </div>
-          {/* Code area with syntax highlight + textarea overlay */}
+          {/* Code area with syntax highlight + textarea + comment overlays */}
           <div className="flex-1 relative overflow-hidden min-w-0">
+            {/* Syntax highlight layer */}
             <pre
               ref={highlightRef}
               className="absolute inset-0 m-0 p-0 bg-transparent overflow-hidden pointer-events-none"
             >
               <code className="block">
-                {editContent.split("\n").map((line, i) => (
+                {fileLines.map((line, i) => (
                   <div
                     key={i}
                     className="h-[21px] leading-[21px] pl-2 pr-2 font-mono text-[13px] whitespace-pre"
@@ -787,6 +902,7 @@ export function ReviewEditor({
                 ))}
               </code>
             </pre>
+            {/* Textarea for editing */}
             <textarea
               ref={editorRef}
               className="absolute inset-0 w-full h-full font-mono text-[13px] leading-[21px] bg-transparent text-transparent resize-none outline-none border-none pl-2 pr-2"
@@ -796,20 +912,35 @@ export function ReviewEditor({
                 setEditContent(e.target.value);
                 setIsDirty(e.target.value !== fileContent);
               }}
-              onScroll={() => {
-                if (editorRef.current && highlightRef.current) {
-                  highlightRef.current.scrollTop = editorRef.current.scrollTop;
-                  highlightRef.current.scrollLeft = editorRef.current.scrollLeft;
-                }
-                if (editorRef.current && lineNumRef.current) {
-                  lineNumRef.current.scrollTop = editorRef.current.scrollTop;
-                }
-              }}
+              onScroll={syncScroll}
               spellCheck={false}
               autoCorrect="off"
               autoCapitalize="off"
               wrap="off"
             />
+            {/* Comment overlays — floating on top, scroll synced */}
+            <div
+              ref={overlayRef}
+              className="absolute inset-0 overflow-hidden pointer-events-none z-10"
+            >
+              <div style={{ height: `${fileLines.length * 21}px`, position: "relative" }}>
+                {visibleComments.map((comment) => (
+                  <div
+                    key={comment.id}
+                    className="absolute left-0 right-[16px] pointer-events-auto mx-1"
+                    style={{ top: `${comment.endLine * 21}px` }}
+                  >
+                    <CommentCard
+                      comment={comment}
+                      onResolve={onResolveComment}
+                      onUnresolve={onUnresolveComment}
+                      onDelete={onDeleteComment}
+                      onCollapse={() => handleGutterDotClick({ stopPropagation: () => {} } as React.MouseEvent, comment)}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       );
@@ -834,13 +965,14 @@ export function ReviewEditor({
             isImage={isImageFile(browseSelectedFile)}
           />
           {renderFileEditorBody()}
-          {fileCommentLine !== null && (
+          {fileCommentStartLine !== null && fileCommentEndLine !== null && (
             <FileCommentPanel
-              line={fileCommentLine}
+              startLine={fileCommentStartLine}
+              endLine={fileCommentEndLine}
               text={fileCommentText}
               onTextChange={setFileCommentText}
               onSubmit={handleFileCommentSubmit}
-              onCancel={() => { setFileCommentLine(null); setFileCommentText(""); }}
+              onCancel={closeFileComment}
             />
           )}
         </div>
@@ -859,13 +991,18 @@ export function ReviewEditor({
       const leftPct = `${leftPaneFraction * 100}%`;
       const rightPct = `${(1 - leftPaneFraction) * 100}%`;
       return (
-        <div ref={diffContainerRef} className="flex flex-1 overflow-hidden min-h-0">
+        <div ref={diffContainerRef} className="flex flex-1 overflow-hidden min-h-0 relative">
           {renderPane("old", diff.left, leftPct)}
           <div
             className="w-[5px] bg-[#404040] shrink-0 cursor-col-resize hover:bg-[#569cd6] active:bg-[#569cd6] transition-colors"
             onMouseDown={handleDiffDragStart}
           />
           {renderPane("new", diff.right, rightPct)}
+          {readOnlyToast && (
+            <div className="absolute top-10 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded bg-[#3c3c3c] border border-[#555] text-[#d4d4d4] text-[12px] shadow-[0_2px_8px_rgba(0,0,0,0.4)] pointer-events-none select-none">
+              This file is read-only in diff view
+            </div>
+          )}
         </div>
       );
     }

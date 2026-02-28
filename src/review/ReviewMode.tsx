@@ -346,11 +346,19 @@ export function ReviewMode({ isVisible, cwd, onModeChange, onReviewInfo }: Revie
   };
 
   const navigateToComment = (comment: Comment) => {
-    // Switch to the file containing the comment
+    // Switch to review mode if not already there
+    onModeChange("review");
+
+    // Check if the file is in the changed files list (diff view)
     const changedFile = files.find((f) => f.path === comment.filePath);
     if (changedFile) {
       openDiffTab(changedFile.path, changedFile.status);
       setSidebarTab("changes");
+    } else {
+      // File was commented from the browse tab — open as a file tab
+      const fullPath = `${cwd}/${comment.filePath}`;
+      openFileTab(fullPath);
+      setSidebarTab("files");
     }
     setScrollToCommentId(comment.id);
   };

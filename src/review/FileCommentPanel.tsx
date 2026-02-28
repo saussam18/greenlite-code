@@ -1,20 +1,29 @@
 export function FileCommentPanel({
-  line,
+  startLine,
+  endLine,
   text,
   onTextChange,
   onSubmit,
   onCancel,
 }: {
-  line: number;
+  startLine: number;
+  endLine: number;
   text: string;
   onTextChange: (text: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
 }) {
+  const lineLabel = startLine === endLine
+    ? `Comment on line ${startLine}`
+    : `Comment on lines ${Math.min(startLine, endLine)}–${Math.max(startLine, endLine)}`;
+
   return (
     <div className="shrink-0 border-t border-[#404040] bg-[#252526] p-3">
       <div className="text-[11px] text-[#888] mb-1.5">
-        Comment on line {line}
+        {lineLabel}
+        {startLine === endLine && (
+          <span className="text-[#555] ml-2">Shift+click another line to select a range</span>
+        )}
       </div>
       <textarea
         className="w-full min-h-[60px] px-2 py-1.5 border border-[#555] rounded bg-[#1e1e1e] text-[#d4d4d4] font-mono text-[13px] resize-y outline-none focus:border-[#4e9a06]"

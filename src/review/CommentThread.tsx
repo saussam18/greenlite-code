@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Check, Undo2, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { CommentCard, lineLabel } from "./CommentCard";
 
 export interface Comment {
   id: string;
@@ -46,53 +47,17 @@ export function CommentThread({
           </span>
         )}
         <span className="text-[12px] text-[#999] truncate flex-1">
-          {collapsed ? comment.text : (() => {
-            const hasCol = comment.startCol !== 0 || comment.endCol !== Infinity;
-            if (hasCol) {
-              return `L${comment.startLine}:${comment.startCol}–L${comment.endLine}:${comment.endCol}`;
-            }
-            return `Lines ${comment.startLine}–${comment.endLine}`;
-          })()}
+          {collapsed ? comment.text : lineLabel(comment)}
         </span>
       </div>
       {!collapsed && (
-        <div className="px-3 pb-2">
-          <div className="text-[13px] text-[#d4d4d4] whitespace-pre-wrap">
-            {comment.text}
-          </div>
-          <div className="text-[11px] text-[#666] mt-1">
-            {(() => {
-              const hasCol = comment.startCol !== 0 || comment.endCol !== Infinity;
-              if (hasCol) {
-                return `L${comment.startLine}:${comment.startCol}–L${comment.endLine}:${comment.endCol}`;
-              }
-              return `Lines ${comment.startLine}–${comment.endLine}`;
-            })()} &middot;{" "}
-            {new Date(comment.createdAt).toLocaleString()}
-          </div>
-          <div className="flex gap-1.5 mt-2">
-            {comment.resolved ? (
-              <button
-                className="flex items-center gap-1 px-2 py-0.5 border border-[#555] rounded-sm bg-transparent text-[#4e9a06] cursor-pointer text-[11px] hover:bg-[rgba(78,154,6,0.15)]"
-                onClick={() => onUnresolve(comment.id)}
-              >
-                <Undo2 size={11} /> Unresolve
-              </button>
-            ) : (
-              <button
-                className="flex items-center gap-1 px-2 py-0.5 border border-[#4e9a06] rounded-sm bg-transparent text-[#4e9a06] cursor-pointer text-[11px] hover:bg-[rgba(78,154,6,0.15)]"
-                onClick={() => onResolve(comment.id)}
-              >
-                <Check size={11} /> Resolve
-              </button>
-            )}
-            <button
-              className="flex items-center gap-1 px-2 py-0.5 border border-[#555] rounded-sm bg-transparent text-[#f44747] cursor-pointer text-[11px] hover:bg-[rgba(244,71,71,0.15)]"
-              onClick={() => onDelete(comment.id)}
-            >
-              <Trash2 size={11} /> Delete
-            </button>
-          </div>
+        <div className="px-1 pb-1">
+          <CommentCard
+            comment={comment}
+            onResolve={onResolve}
+            onUnresolve={onUnresolve}
+            onDelete={onDelete}
+          />
         </div>
       )}
     </div>
