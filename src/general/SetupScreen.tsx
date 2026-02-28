@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import logo from "../assets/GreenliteCodeLogo.png";
 
 const STORAGE_KEY = "recentFolders";
 const MAX_RECENT = 5;
@@ -51,6 +52,7 @@ export function SetupScreen({ onSelect }: SetupScreenProps) {
   return (
     <div className="flex items-center justify-center h-screen bg-[#121212]">
       <div className="flex flex-col items-center gap-6 bg-[#1e1e1e] border border-[#333] rounded-xl px-12 py-10 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
+        <img src={logo} alt="Greenlite" className="w-16 h-16" />
         <h1 className="text-[22px] font-bold text-[#e0e0e0] tracking-wide m-0">
           greenlite
         </h1>
