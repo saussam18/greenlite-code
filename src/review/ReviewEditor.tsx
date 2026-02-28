@@ -9,8 +9,6 @@ import { FileEditorHeader } from "./FileEditorHeader";
 import { FileCommentPanel } from "./FileCommentPanel";
 import { ImageViewer } from "./ImageViewer";
 
-export type { DiffLine } from "../types/review";
-
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp"]);
 
 function isImageFile(path: string): boolean {

@@ -2,8 +2,19 @@ import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { MessageSquare, ChevronDown, ChevronUp, Send, FileText } from "lucide-react";
 import type { TerminalCommandSetting, Mode } from "../types/settings";
+import type { ReviewInfo } from "../types/review";
 import type { GitInfo, ChangedFile } from "../types/git";
-import type { StatusBarProps } from "../types/statusBar";
+
+interface StatusBarProps {
+  repoPath: string;
+  activeMode: Mode;
+  onModeChange: (mode: Mode) => void;
+  onChangeProject: () => void;
+  terminalSetting: TerminalCommandSetting;
+  customCommand?: string;
+  onChangeTerminalCommand: (setting: TerminalCommandSetting, customCmd?: string) => void;
+  reviewInfo?: ReviewInfo | null;
+}
 
 const TERMINAL_LABELS: Record<TerminalCommandSetting, string> = {
   claude: "Claude",

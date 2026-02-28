@@ -1,13 +1,7 @@
 import { useState, useEffect } from "react";
 import { readDir } from "@tauri-apps/plugin-fs";
 import { ChevronDown, ChevronRight } from "lucide-react";
-
-interface ProjectNode {
-  name: string;
-  fullPath: string;
-  isFile: boolean;
-  children: ProjectNode[] | null;
-}
+import type { ProjectNode } from "../types/git";
 
 const IGNORED_DIRS = new Set([
   ".git", "node_modules", "target", "dist", ".next",
@@ -33,17 +27,19 @@ async function loadDirChildren(dirPath: string): Promise<ProjectNode[]> {
   return nodes;
 }
 
+interface ProjectTreeProps {
+  cwd: string;
+  selectedPath: string | null;
+  onSelect: (fullPath: string) => void;
+  refreshKey: number;
+}
+
 export function ProjectTree({
   cwd,
   selectedPath,
   onSelect,
   refreshKey,
-}: {
-  cwd: string;
-  selectedPath: string | null;
-  onSelect: (fullPath: string) => void;
-  refreshKey: number;
-}) {
+}: ProjectTreeProps) {
   const [roots, setRoots] = useState<ProjectNode[] | null>(null);
 
   useEffect(() => {

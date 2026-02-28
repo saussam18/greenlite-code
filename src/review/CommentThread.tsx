@@ -1,19 +1,22 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { Comment } from "../types/review";
-import { CommentCard, lineLabel } from "./CommentCard";
+import { CommentCard } from "./CommentCard";
+import { lineLabel } from "./commentUtils";
+
+interface CommentThreadProps {
+  comment: Comment;
+  onResolve: (id: string) => void;
+  onUnresolve: (id: string) => void;
+  onDelete: (id: string) => void;
+}
 
 export function CommentThread({
   comment,
   onResolve,
   onUnresolve,
   onDelete,
-}: {
-  comment: Comment;
-  onResolve: (id: string) => void;
-  onUnresolve: (id: string) => void;
-  onDelete: (id: string) => void;
-}) {
+}: CommentThreadProps) {
   const [collapsed, setCollapsed] = useState(false);
   const borderColor = comment.resolved ? "#555" : "#4e9a06";
   const opacity = comment.resolved ? "opacity-60" : "";

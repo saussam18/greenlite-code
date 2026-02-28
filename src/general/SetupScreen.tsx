@@ -1,6 +1,10 @@
 import { useState, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { TerminalCommandSetting, ProjectSettings, SetupScreenProps } from "../types/settings";
+import type { TerminalCommandSetting, ProjectSettings } from "../types/settings";
+
+interface SetupScreenProps {
+  onSelect: (folderPath: string) => void;
+}
 import { getProjectSettings, saveProjectSettings } from "./settingsUtils";
 import logo from "../assets/GreenliteCodeLogo.png";
 

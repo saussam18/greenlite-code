@@ -6,7 +6,3 @@ export interface ProjectSettings {
 }
 
 export type Mode = "build" | "review";
-
-export interface SetupScreenProps {
-  onSelect: (folderPath: string) => void;
-}

@@ -1,5 +1,3 @@
-import type { Mode } from "./settings";
-
 export interface Comment {
   id: string;
   side: "old" | "new";
@@ -40,11 +38,4 @@ export interface FileDiff {
 export interface CommentsData {
   commitHash: string;
   comments: Comment[];
-}
-
-export interface ReviewModeProps {
-  isVisible: boolean;
-  cwd: string;
-  onModeChange: (mode: Mode) => void;
-  onReviewInfo?: (info: ReviewInfo | null) => void;
 }

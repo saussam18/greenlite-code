@@ -11,3 +11,10 @@ export interface ChangedFile {
   status: string;
   path: string;
 }
+
+export interface ProjectNode {
+  name: string;
+  fullPath: string;
+  isFile: boolean;
+  children: ProjectNode[] | null;
+}
