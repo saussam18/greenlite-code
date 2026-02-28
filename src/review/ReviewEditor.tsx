@@ -138,17 +138,25 @@ export function ReviewEditor({
     }
   }, [isVisible]);
 
-  // Comment input
+  // Comment input (diff view)
   const [commentInput, setCommentInput] = useState("");
   const [showCommentInput, setShowCommentInput] = useState(false);
 
+  // File view comment
+  const [fileCommentLine, setFileCommentLine] = useState<number | null>(null);
+  const [fileCommentText, setFileCommentText] = useState("");
+
   // Track which inline threads are collapsed
   const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(new Set());
+
+  // Visual row index of selection end (for popover positioning in diff view)
+  const [selEndRow, setSelEndRow] = useState<number | null>(null);
 
   const clearSelection = () => {
     setSelectingSide(null);
     setSelectionStart(null);
     setSelectionEnd(null);
+    setSelEndRow(null);
     setShowCommentInput(false);
     setCommentInput("");
   };
@@ -162,18 +170,20 @@ export function ReviewEditor({
     return Math.max(0, Math.min(col, lineText.length));
   };
 
-  const handleLineMouseDown = (side: "old" | "new", lineNum: number, col: number) => {
+  const handleLineMouseDown = (side: "old" | "new", lineNum: number, col: number, row: number) => {
     setIsSelecting(true);
     setSelectingSide(side);
     setSelectionStart({ line: lineNum, col });
     setSelectionEnd({ line: lineNum, col });
+    setSelEndRow(row);
     setShowCommentInput(false);
     setCommentInput("");
   };
 
-  const handleLineMouseMove = (side: "old" | "new", lineNum: number, col: number) => {
+  const handleLineMouseMove = (side: "old" | "new", lineNum: number, col: number, row: number) => {
     if (isSelecting && side === selectingSide) {
       setSelectionEnd({ line: lineNum, col });
+      setSelEndRow(row);
     }
   };
 
@@ -234,26 +244,42 @@ export function ReviewEditor({
     return fileComments.filter((c) => c.side === side && c.endLine === lineNum);
   };
 
+  const createComment = (
+    text: string,
+    filePath: string,
+    side: "old" | "new",
+    startLine: number,
+    endLine: number,
+    startCol: number,
+    endCol: number,
+  ): Comment => ({
+    id: crypto.randomUUID(),
+    side,
+    filePath,
+    startLine,
+    endLine,
+    startCol,
+    endCol,
+    text,
+    createdAt: new Date().toISOString(),
+    resolved: false,
+  });
+
   const handleAddComment = () => setShowCommentInput(true);
 
   const handleSubmitComment = () => {
     if (!commentInput.trim() || !selectedFile || !selectingSide || !selNorm) return;
 
     const isSinglePoint = selNorm.start.line === selNorm.end.line && selNorm.start.col === selNorm.end.col;
-    const newComment: Comment = {
-      id: crypto.randomUUID(),
-      side: selectingSide,
-      filePath: selectedFile,
-      startLine: selNorm.start.line,
-      endLine: selNorm.end.line,
-      startCol: isSinglePoint ? 0 : selNorm.start.col,
-      endCol: isSinglePoint ? Infinity : selNorm.end.col,
-      text: commentInput.trim(),
-      createdAt: new Date().toISOString(),
-      resolved: false,
-    };
-
-    onAddComment(newComment);
+    onAddComment(createComment(
+      commentInput.trim(),
+      selectedFile,
+      selectingSide,
+      selNorm.start.line,
+      selNorm.end.line,
+      isSinglePoint ? 0 : selNorm.start.col,
+      isSinglePoint ? Infinity : selNorm.end.col,
+    ));
     clearSelection();
   };
 
@@ -270,6 +296,22 @@ export function ReviewEditor({
     });
   };
 
+  const handleFileCommentSubmit = () => {
+    if (!fileCommentText.trim() || fileCommentLine === null || !browseSelectedFile) return;
+    const relativePath = browseSelectedFile.replace(cwd + "/", "");
+    onAddComment(createComment(
+      fileCommentText.trim(),
+      relativePath,
+      "new",
+      fileCommentLine,
+      fileCommentLine,
+      0,
+      Infinity,
+    ));
+    setFileCommentLine(null);
+    setFileCommentText("");
+  };
+
   // Load file content when browsing files
   useEffect(() => {
     if (viewMode !== "file" || !browseSelectedFile) {
@@ -280,6 +322,9 @@ export function ReviewEditor({
       setImageDataUrl(null);
       return;
     }
+    // Clear file comment when switching files
+    setFileCommentLine(null);
+    setFileCommentText("");
     setFileError(null);
     setFileContent(null);
     setImageDataUrl(null);
@@ -433,11 +478,11 @@ export function ReviewEditor({
   };
 
   const renderCommentPopover = (side: "old" | "new") => {
-    if (selectingSide !== side || selMin === null || selMax === null || isSelecting || !selNorm) return null;
+    if (selectingSide !== side || selMin === null || selMax === null || selEndRow === null || isSelecting || !selNorm) return null;
     return (
       <div
         className="absolute z-20"
-        style={{ top: `${(selMax) * 21 + 28}px`, left: `min(calc(50px + 0.5rem + ${selNorm.end.col}ch), calc(100% - ${showCommentInput ? '21rem' : '2.5rem'}))` }}
+        style={{ top: `${(selEndRow + 1) * 21 + 28}px`, left: `min(calc(50px + 0.5rem + ${selNorm.end.col}ch), calc(100% - ${showCommentInput ? '21rem' : '2.5rem'}))` }}
       >
         {!showCommentInput ? (
           <button
@@ -526,13 +571,13 @@ export function ReviewEditor({
             if (lineNum == null) return;
             const codeSpan = e.currentTarget.querySelector('[data-code-span]') as HTMLElement | null;
             const col = codeSpan ? getColFromEvent(e, codeSpan, line.text) : 0;
-            handleLineMouseDown(side, lineNum, col);
+            handleLineMouseDown(side, lineNum, col, i);
           }}
           onMouseMove={(e) => {
             if (lineNum == null) return;
             const codeSpan = e.currentTarget.querySelector('[data-code-span]') as HTMLElement | null;
             const col = codeSpan ? getColFromEvent(e, codeSpan, line.text) : 0;
-            handleLineMouseMove(side, lineNum, col);
+            handleLineMouseMove(side, lineNum, col, i);
           }}
         >
           <span className="inline-flex items-center justify-end w-[50px] min-w-[50px] pr-2 font-mono text-[13px] text-[#555] text-right shrink-0 gap-1">
@@ -624,9 +669,18 @@ export function ReviewEditor({
             {editContent.split("\n").map((_, i) => (
               <div
                 key={i}
-                className="h-[21px] leading-[21px] text-right pr-2 font-mono text-[13px] text-[#555]"
+                className="group h-[21px] leading-[21px] pr-2 font-mono text-[13px] text-[#555] flex items-center"
               >
-                {i + 1}
+                <span
+                  className="w-[16px] flex items-center justify-center opacity-0 group-hover:opacity-60 hover:!opacity-100 cursor-pointer hover:!text-[#4e9a06] shrink-0"
+                  onClick={() => {
+                    setFileCommentLine(i + 1);
+                    setFileCommentText("");
+                  }}
+                >
+                  <MessageSquarePlus size={11} />
+                </span>
+                <span className="flex-1 text-right">{i + 1}</span>
               </div>
             ))}
           </div>
@@ -694,6 +748,42 @@ export function ReviewEditor({
             isImage={isImageFile(browseSelectedFile)}
           />
           {renderFileEditorBody()}
+          {fileCommentLine !== null && (
+            <div className="shrink-0 border-t border-[#404040] bg-[#252526] p-3">
+              <div className="text-[11px] text-[#888] mb-1.5">
+                Comment on line {fileCommentLine}
+              </div>
+              <textarea
+                className="w-full min-h-[60px] px-2 py-1.5 border border-[#555] rounded bg-[#1e1e1e] text-[#d4d4d4] font-mono text-[13px] resize-y outline-none focus:border-[#4e9a06]"
+                placeholder="Add a comment..."
+                value={fileCommentText}
+                onChange={(e) => setFileCommentText(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleFileCommentSubmit();
+                  if (e.key === "Escape") { setFileCommentLine(null); setFileCommentText(""); }
+                }}
+              />
+              <div className="flex items-center justify-between mt-1.5">
+                <span className="text-[10px] text-[#555]">Cmd+Enter to submit</span>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => { setFileCommentLine(null); setFileCommentText(""); }}
+                    className="px-3 py-1 border border-[#555] rounded bg-[#3c3c3c] text-[#d4d4d4] cursor-pointer text-xs hover:bg-[#4a4a4a]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleFileCommentSubmit}
+                    disabled={!fileCommentText.trim()}
+                    className="px-3 py-1 border border-[#4e9a06] rounded bg-[#2e6b30] text-[#e0e0e0] cursor-pointer text-xs hover:bg-[#3a8a3c] disabled:opacity-40 disabled:cursor-default"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
