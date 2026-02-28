@@ -159,18 +159,18 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
   };
 
   const tabClass = (mode: Mode) =>
-    `px-4 py-0.5 border rounded text-[11px] font-bold tracking-wider cursor-pointer transition-all duration-150 bg-transparent ${
+    `px-5 py-1.5 border rounded text-[14px] font-bold tracking-wider cursor-pointer transition-all duration-150 bg-transparent ${
       activeMode === mode
         ? "text-[#e0e0e0] bg-[#2a2a2a] border-[#666]"
         : "text-[#666] border-[#404040] hover:text-[#aaa] hover:border-[#555]"
     }`;
 
   return (
-    <div className="flex items-center justify-between shrink-0 bg-[#181818] border-t border-[#404040] px-3 py-1 text-[11px] font-mono text-[#888] select-none min-h-[28px] gap-4">
+    <div className="flex items-center justify-between shrink-0 bg-[#181818] border-t border-[#404040] px-5 py-4 text-[14px] font-mono text-[#888] select-none min-h-[56px] gap-5">
       {/* Left: project name + git info */}
-      <div className="flex items-center gap-3 shrink-0 min-w-0 flex-1">
+      <div className="flex items-center gap-4 shrink-0 min-w-0 flex-1">
         <button
-          className="flex items-center gap-1 text-[11px] text-[#d4d4d4] hover:text-white cursor-pointer bg-transparent border-none font-mono shrink-0"
+          className="flex items-center gap-2 text-[14px] text-[#d4d4d4] hover:text-white cursor-pointer bg-transparent border-none font-mono shrink-0"
           onClick={onChangeProject}
           title="Switch project"
         >
@@ -182,25 +182,25 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
           <>
             <div className="relative shrink-0">
               <button
-                className="flex items-center gap-1 text-[#d4d4d4] bg-transparent border-none font-mono text-[11px] cursor-pointer hover:text-white shrink-0"
+                className="flex items-center gap-2 text-[#d4d4d4] bg-transparent border-none font-mono text-[14px] cursor-pointer hover:text-white shrink-0"
                 onClick={openBranchSwitcher}
                 title="Switch branch"
               >
                 <span className="text-[#888]">⎇</span>
                 {info.branch}
-                <span className="text-[#555] text-[9px]">▼</span>
+                <span className="text-[#555] text-[11px]">▼</span>
               </button>
               {showBranches && (
                 <div
                   ref={branchPopoverRef}
-                  className="absolute bottom-full left-0 mb-1 bg-[#252526] border border-[#404040] rounded shadow-[0_4px_16px_rgba(0,0,0,0.4)] max-h-[300px] w-[220px] overflow-y-auto z-50"
+                  className="absolute bottom-full left-0 mb-2 bg-[#252526] border border-[#404040] rounded shadow-[0_4px_16px_rgba(0,0,0,0.4)] max-h-[400px] w-[280px] overflow-y-auto z-50"
                 >
-                  <div className="px-3 py-1.5 text-[11px] text-[#888] font-semibold uppercase tracking-wider border-b border-[#404040] sticky top-0 bg-[#252526]">
+                  <div className="px-4 py-2.5 text-[13px] text-[#888] font-semibold uppercase tracking-wider border-b border-[#404040] sticky top-0 bg-[#252526]">
                     Branches
                   </div>
                   {/* New branch input */}
                   <form
-                    className="flex items-center gap-1 px-2 py-1.5 border-b border-[#404040]"
+                    className="flex items-center gap-2 px-3 py-2.5 border-b border-[#404040]"
                     onSubmit={(e) => {
                       e.preventDefault();
                       if (newBranchName.trim()) handleCheckout(newBranchName.trim(), true);
@@ -209,7 +209,7 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
                     <input
                       ref={newBranchInputRef}
                       type="text"
-                      className="bg-[#1e1e1e] border border-[#555] rounded text-[11px] text-[#d4d4d4] px-1.5 py-0 h-[20px] flex-1 min-w-0 font-mono outline-none focus:border-[#888]"
+                      className="bg-[#1e1e1e] border border-[#555] rounded text-[14px] text-[#d4d4d4] px-2.5 py-1 h-[32px] flex-1 min-w-0 font-mono outline-none focus:border-[#888]"
                       placeholder="New branch…"
                       value={newBranchName}
                       onChange={(e) => setNewBranchName(e.target.value)}
@@ -218,7 +218,7 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
                     <button
                       type="submit"
                       disabled={!newBranchName.trim()}
-                      className="px-1.5 py-0 border rounded text-[11px] font-bold cursor-pointer bg-transparent text-[#6a9955] border-[#6a9955] hover:bg-[#6a9955]/20 disabled:opacity-40 disabled:cursor-default h-[20px] shrink-0"
+                      className="px-2.5 py-1 border rounded text-[14px] font-bold cursor-pointer bg-transparent text-[#6a9955] border-[#6a9955] hover:bg-[#6a9955]/20 disabled:opacity-40 disabled:cursor-default h-[32px] shrink-0"
                     >
                       +
                     </button>
@@ -227,14 +227,14 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
                   {branches.map((b) => (
                     <button
                       key={b}
-                      className={`flex items-center gap-2 w-full px-3 py-[4px] text-[12px] text-left bg-transparent border-none font-mono cursor-pointer hover:bg-white/[0.05] ${
+                      className={`flex items-center gap-3 w-full px-4 py-[8px] text-[14px] text-left bg-transparent border-none font-mono cursor-pointer hover:bg-white/[0.05] ${
                         b === info.branch ? "text-[#6a9955]" : "text-[#d4d4d4]"
                       }`}
                       onClick={() => {
                         if (b !== info.branch) handleCheckout(b, false);
                       }}
                     >
-                      <span className="w-[14px] shrink-0 text-[10px]">
+                      <span className="w-[16px] shrink-0 text-[12px]">
                         {b === info.branch ? "●" : ""}
                       </span>
                       <span className="truncate min-w-0">{b}</span>
@@ -270,7 +270,7 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
       </div>
 
       {/* Center: mode tabs */}
-      <div className="flex items-center gap-1 shrink-0">
+      <div className="flex items-center gap-2 shrink-0">
         <button className={tabClass("build")} onClick={() => onModeChange("build")}>
           BUILD
         </button>
@@ -280,15 +280,15 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
       </div>
 
       {/* Right: git actions + changed files summary */}
-      <div className="relative flex items-center justify-end flex-1 min-w-0 gap-2">
+      <div className="relative flex items-center justify-end flex-1 min-w-0 gap-3">
         {/* Commit + Push */}
         <button
           disabled={!info?.dirty}
           onClick={() => setShowCommit(true)}
-          className={`px-2 py-0.5 border rounded text-[11px] font-bold tracking-wider cursor-pointer bg-transparent disabled:opacity-40 disabled:cursor-default shrink-0 ${
+          className={`px-3 py-1.5 border rounded text-[14px] font-bold tracking-wider cursor-pointer bg-transparent disabled:opacity-40 disabled:cursor-default shrink-0 ${
             showCommit
-              ? "text-[#6a9955] border-[#6a9955]"
-              : "text-[#888] border-[#404040] hover:text-[#ccc] hover:border-[#555]"
+              ? "text-[#6a9955] border-[#6a9955] bg-[#6a9955]/20"
+              : "text-[#6a9955] border-[#6a9955]/50 hover:bg-[#6a9955]/20 hover:border-[#6a9955]"
           }`}
         >
           Commit &amp; Push
@@ -297,15 +297,15 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
         {showCommit && (
           <div
             ref={commitDialogRef}
-            className="absolute bottom-full right-0 mb-1 bg-[#252526] border border-[#404040] rounded shadow-[0_4px_16px_rgba(0,0,0,0.4)] w-[400px] z-50"
+            className="absolute bottom-full right-0 mb-2 bg-[#252526] border border-[#404040] rounded shadow-[0_4px_16px_rgba(0,0,0,0.4)] w-[460px] z-50"
           >
-            <div className="px-3 py-1.5 text-[11px] text-[#888] font-semibold uppercase tracking-wider border-b border-[#404040]">
+            <div className="px-4 py-2.5 text-[13px] text-[#888] font-semibold uppercase tracking-wider border-b border-[#404040]">
               Commit &amp; Push
             </div>
-            <div className="p-3">
+            <div className="p-4">
               <textarea
                 ref={commitInputRef}
-                className="w-full min-h-[120px] bg-[#1e1e1e] border border-[#555] rounded text-[13px] text-[#d4d4d4] px-3 py-2 font-mono outline-none focus:border-[#6a9955] resize-y"
+                className="w-full min-h-[140px] bg-[#1e1e1e] border border-[#555] rounded text-[15px] text-[#d4d4d4] px-4 py-3 font-mono outline-none focus:border-[#6a9955] resize-y"
                 placeholder="Commit message…"
                 value={commitMsg}
                 onChange={(e) => setCommitMsg(e.target.value)}
@@ -321,16 +321,16 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
                   }
                 }}
               />
-              <div className="flex items-center justify-between mt-2">
-                <span className="text-[11px] text-[#555]">
+              <div className="flex items-center justify-between mt-3">
+                <span className="text-[13px] text-[#555]">
                   {files.length} changed file{files.length !== 1 ? "s" : ""}
                 </span>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-[#555]">Cmd+Enter to submit</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-[12px] text-[#555]">Cmd+Enter to submit</span>
                   <button
                     type="button"
                     onClick={() => { setShowCommit(false); setCommitMsg(""); }}
-                    className="px-3 py-1 border rounded text-[11px] font-bold cursor-pointer bg-transparent text-[#888] border-[#404040] hover:text-[#ccc] hover:border-[#555]"
+                    className="px-4 py-1.5 border rounded text-[13px] font-bold cursor-pointer bg-transparent text-[#888] border-[#404040] hover:text-[#ccc] hover:border-[#555]"
                   >
                     Cancel
                   </button>
@@ -338,7 +338,7 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
                     type="button"
                     onClick={handleCommitAndPush}
                     disabled={!commitMsg.trim() || committing}
-                    className="px-3 py-1 border rounded text-[11px] font-bold tracking-wider cursor-pointer bg-transparent text-[#6a9955] border-[#6a9955] hover:bg-[#6a9955]/20 disabled:opacity-40 disabled:cursor-default"
+                    className="px-4 py-1.5 border rounded text-[13px] font-bold tracking-wider cursor-pointer bg-transparent text-[#6a9955] border-[#6a9955] hover:bg-[#6a9955]/20 disabled:opacity-40 disabled:cursor-default"
                   >
                     {committing ? "Pushing…" : "Commit & Push"}
                   </button>
@@ -352,7 +352,7 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
         <button
           disabled={!info?.dirty}
           onClick={handleRevert}
-          className="px-2 py-0.5 border rounded text-[11px] font-bold tracking-wider cursor-pointer bg-transparent text-[#f44747] border-[#f44747]/50 hover:bg-[#f44747]/20 disabled:opacity-40 disabled:cursor-default shrink-0"
+          className="px-3 py-1.5 border rounded text-[14px] font-bold tracking-wider cursor-pointer bg-transparent text-[#f44747] border-[#f44747]/50 hover:bg-[#f44747]/20 disabled:opacity-40 disabled:cursor-default shrink-0"
         >
           Revert
         </button>
@@ -361,7 +361,7 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
 
         {files.length > 0 ? (
           <button
-            className="flex items-center gap-1.5 text-[11px] text-[#888] hover:text-[#ccc] cursor-pointer bg-transparent border-none font-mono"
+            className="flex items-center gap-2 text-[14px] text-[#888] hover:text-[#ccc] cursor-pointer bg-transparent border-none font-mono"
             onClick={() => setShowFiles(!showFiles)}
           >
             {(() => {
@@ -386,18 +386,18 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
         {showFiles && files.length > 0 && (
           <div
             ref={popoverRef}
-            className="absolute bottom-full right-0 mb-1 bg-[#252526] border border-[#404040] rounded shadow-[0_4px_16px_rgba(0,0,0,0.4)] max-h-[300px] w-[320px] overflow-y-auto z-50"
+            className="absolute bottom-full right-0 mb-2 bg-[#252526] border border-[#404040] rounded shadow-[0_4px_16px_rgba(0,0,0,0.4)] max-h-[400px] w-[400px] overflow-y-auto z-50"
           >
-            <div className="px-3 py-1.5 text-[11px] text-[#888] font-semibold uppercase tracking-wider border-b border-[#404040] sticky top-0 bg-[#252526]">
+            <div className="px-4 py-2.5 text-[13px] text-[#888] font-semibold uppercase tracking-wider border-b border-[#404040] sticky top-0 bg-[#252526]">
               Changed Files ({files.length})
             </div>
             {files.map((f, i) => (
               <div
                 key={i}
-                className="flex items-center gap-2 px-3 py-[3px] text-[12px] hover:bg-white/[0.05]"
+                className="flex items-center gap-3 px-4 py-[7px] text-[14px] hover:bg-white/[0.05]"
                 title={f.path}
               >
-                <span className={`font-mono font-bold w-[18px] text-center shrink-0 ${statusColor(f.status)}`}>
+                <span className={`font-mono font-bold w-[22px] text-center shrink-0 ${statusColor(f.status)}`}>
                   {f.status}
                 </span>
                 <span className="text-[#d4d4d4] truncate min-w-0">{f.path}</span>
