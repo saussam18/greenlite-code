@@ -69,7 +69,7 @@ function App() {
         terminalSetting={projectSettings?.terminalCommand ?? "claude"}
         customCommand={projectSettings?.customCommand}
         onChangeTerminalCommand={handleChangeTerminalCommand}
-        reviewInfo={activeMode === "review" ? reviewInfo : null}
+        reviewInfo={reviewInfo}
       />
     </div>
   );

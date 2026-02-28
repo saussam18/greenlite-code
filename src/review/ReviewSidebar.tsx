@@ -289,15 +289,12 @@ interface ReviewSidebarProps {
   setSidebarTab: (tab: "changes" | "files") => void;
   files: ChangedFile[];
   selectedFile: string | null;
-  setSelectedFile: (path: string | null) => void;
-  setSelectedStatus: (status: string | null) => void;
   browseSelectedFile: string | null;
-  setBrowseSelectedFile: (path: string | null) => void;
-  viewMode: "diff" | "file";
-  setViewMode: (mode: "diff" | "file") => void;
   clearSelection: () => void;
   cwd: string;
   width?: number;
+  onSelectDiff: (path: string, status: string) => void;
+  onSelectFile: (fullPath: string) => void;
 }
 
 export function ReviewSidebar({
@@ -305,14 +302,12 @@ export function ReviewSidebar({
   setSidebarTab,
   files,
   selectedFile,
-  setSelectedFile,
-  setSelectedStatus,
   browseSelectedFile,
-  setBrowseSelectedFile,
-  setViewMode,
   clearSelection,
   cwd,
   width,
+  onSelectDiff,
+  onSelectFile,
 }: ReviewSidebarProps) {
   const tree = buildTree(files);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -378,11 +373,8 @@ export function ReviewSidebar({
             <div className="px-3 py-4 text-[13px] text-[#555]">No changes detected</div>
           ) : (
             <FileTree nodes={tree} selectedPath={selectedFile} onSelect={(path) => {
-              setSelectedFile(path);
               const f = files.find((f) => f.path === path);
-              setSelectedStatus(f?.status || null);
-              setViewMode("diff");
-              setBrowseSelectedFile(null);
+              onSelectDiff(path, f?.status || "M");
             }} />
           )
         ) : (
@@ -426,10 +418,7 @@ export function ReviewSidebar({
               selectedPath={browseSelectedFile}
               refreshKey={refreshKey}
               onSelect={(fullPath) => {
-                setBrowseSelectedFile(fullPath);
-                setViewMode("file");
-                setSelectedFile(null);
-                setSelectedStatus(null);
+                onSelectFile(fullPath);
                 clearSelection();
               }}
             />

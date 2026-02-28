@@ -408,7 +408,7 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
       {/* Right: actions */}
       <div className="relative flex items-center justify-end flex-1 min-w-0 gap-3">
         {/* Review comments info + Send to Claude (visible in review mode) */}
-        {activeMode === "review" && reviewInfo && (
+        {reviewInfo && (
           <>
             <div className="relative shrink-0" ref={commentsListRef}>
               {reviewInfo.openComments.length > 0 ? (

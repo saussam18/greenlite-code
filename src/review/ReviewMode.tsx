@@ -145,6 +145,17 @@ export function ReviewMode({ isVisible, cwd, onModeChange, onReviewInfo }: Revie
   const [browseSelectedFile, setBrowseSelectedFile] = useState<string | null>(null);
   const [scrollToCommentId, setScrollToCommentId] = useState<string | null>(null);
 
+  // Editor tabs
+  interface EditorTab {
+    id: string;
+    path: string;
+    label: string;
+    mode: "diff" | "file";
+    status?: string;
+  }
+  const [editorTabs, setEditorTabs] = useState<EditorTab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+
   const pollRef = useRef<number | null>(null);
 
   // Draggable sidebar width
@@ -267,14 +278,78 @@ export function ReviewMode({ isVisible, cwd, onModeChange, onReviewInfo }: Revie
     // The editor also manages its own selection state internally.
   };
 
+  // Open a diff file as a tab
+  const openDiffTab = (path: string, status: string) => {
+    const id = `diff:${path}`;
+    const fileName = path.split("/").pop() || path;
+    const label = status === "M" ? `Diff (${fileName})` : fileName;
+    setEditorTabs((prev) => {
+      if (prev.some((t) => t.id === id)) return prev;
+      return [...prev, { id, path, label, mode: "diff", status }];
+    });
+    setActiveTabId(id);
+    setSelectedFile(path);
+    setSelectedStatus(status);
+    setViewMode("diff");
+    setBrowseSelectedFile(null);
+  };
+
+  // Open a browse file as a tab
+  const openFileTab = (fullPath: string) => {
+    const id = `file:${fullPath}`;
+    const fileName = fullPath.split("/").pop() || fullPath;
+    setEditorTabs((prev) => {
+      if (prev.some((t) => t.id === id)) return prev;
+      return [...prev, { id, path: fullPath, label: fileName, mode: "file" }];
+    });
+    setActiveTabId(id);
+    setBrowseSelectedFile(fullPath);
+    setViewMode("file");
+    setSelectedFile(null);
+    setSelectedStatus(null);
+  };
+
+  // Switch to an existing tab
+  const switchToTab = (tab: EditorTab) => {
+    setActiveTabId(tab.id);
+    if (tab.mode === "diff") {
+      setSelectedFile(tab.path);
+      setSelectedStatus(tab.status || null);
+      setViewMode("diff");
+      setBrowseSelectedFile(null);
+    } else {
+      setBrowseSelectedFile(tab.path);
+      setViewMode("file");
+      setSelectedFile(null);
+      setSelectedStatus(null);
+    }
+  };
+
+  // Close a tab
+  const closeTab = (tabId: string) => {
+    setEditorTabs((prev) => {
+      const filtered = prev.filter((t) => t.id !== tabId);
+      if (activeTabId === tabId) {
+        if (filtered.length > 0) {
+          const closedIndex = prev.findIndex((t) => t.id === tabId);
+          const newActive = filtered[Math.min(closedIndex, filtered.length - 1)];
+          switchToTab(newActive);
+        } else {
+          setActiveTabId(null);
+          setSelectedFile(null);
+          setSelectedStatus(null);
+          setBrowseSelectedFile(null);
+        }
+      }
+      return filtered;
+    });
+  };
+
   const navigateToComment = (comment: Comment) => {
     // Switch to the file containing the comment
     const changedFile = files.find((f) => f.path === comment.filePath);
     if (changedFile) {
-      setSelectedFile(changedFile.path);
-      setSelectedStatus(changedFile.status);
-      setViewMode("diff");
-      setBrowseSelectedFile(null);
+      openDiffTab(changedFile.path, changedFile.status);
       setSidebarTab("changes");
     }
     setScrollToCommentId(comment.id);
@@ -364,15 +439,12 @@ export function ReviewMode({ isVisible, cwd, onModeChange, onReviewInfo }: Revie
           setSidebarTab={setSidebarTab}
           files={files}
           selectedFile={selectedFile}
-          setSelectedFile={setSelectedFile}
-          setSelectedStatus={setSelectedStatus}
           browseSelectedFile={browseSelectedFile}
-          setBrowseSelectedFile={setBrowseSelectedFile}
-          viewMode={viewMode}
-          setViewMode={setViewMode}
           clearSelection={clearSelection}
           cwd={cwd}
           width={sidebarWidth}
+          onSelectDiff={openDiffTab}
+          onSelectFile={openFileTab}
         />
 
         {/* Draggable divider between sidebar and editor */}
@@ -380,6 +452,36 @@ export function ReviewMode({ isVisible, cwd, onModeChange, onReviewInfo }: Revie
           className="w-[5px] bg-[#404040] shrink-0 cursor-col-resize hover:bg-[#569cd6] active:bg-[#569cd6] transition-colors"
           onMouseDown={handleSidebarDragStart}
         />
+
+        {/* Editor area with tab bar */}
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+          {/* Tab bar */}
+          {editorTabs.length > 0 && (
+            <div className="flex items-center bg-[#2d2d2d] border-b border-[#404040] shrink-0 select-none overflow-x-auto">
+              {editorTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => switchToTab(tab)}
+                  className={`flex items-center gap-1.5 px-3 py-1 text-[12px] tracking-wider border-r border-[#404040] cursor-pointer shrink-0 ${
+                    activeTabId === tab.id
+                      ? "bg-[#1e1e1e] text-[#d4d4d4]"
+                      : "text-[#888] hover:text-[#bbb] hover:bg-[#353535]"
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      closeTab(tab.id);
+                    }}
+                    className="text-[10px] text-[#888] hover:text-[#d4d4d4] cursor-pointer"
+                  >
+                    ×
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
 
         <ReviewEditor
           viewMode={viewMode}
@@ -398,6 +500,7 @@ export function ReviewMode({ isVisible, cwd, onModeChange, onReviewInfo }: Revie
           scrollToCommentId={scrollToCommentId}
           onScrolledToComment={() => setScrollToCommentId(null)}
         />
+        </div>
       </div>
     </div>
   );
