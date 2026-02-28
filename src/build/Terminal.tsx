@@ -9,9 +9,10 @@ import "@xterm/xterm/css/xterm.css";
 interface TerminalProps {
   isVisible: boolean;
   cwd: string;
+  terminalCommand?: string;
 }
 
-export function Terminal({ isVisible, cwd }: TerminalProps) {
+export function Terminal({ isVisible, cwd, terminalCommand }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -63,7 +64,7 @@ export function Terminal({ isVisible, cwd }: TerminalProps) {
 
     const { rows, cols } = term;
 
-    await invoke("pty_create", { rows, cols, cwd });
+    await invoke("pty_create", { rows, cols, cwd, command: terminalCommand });
 
     unlistenRef.current = await getCurrentWebviewWindow().listen<string>("pty-output", (event) => {
       term.write(event.payload);
@@ -76,7 +77,7 @@ export function Terminal({ isVisible, cwd }: TerminalProps) {
     term.onResize(({ rows, cols }) => {
       invoke("pty_resize", { rows, cols }).catch(console.error);
     });
-  }, [cwd]);
+  }, [cwd, terminalCommand]);
 
   useEffect(() => {
     if (!isVisible) return;

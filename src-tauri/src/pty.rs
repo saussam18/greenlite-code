@@ -1,5 +1,5 @@
 // PTY commands — manage a pseudo-terminal session for the integrated terminal.
-// Creates a PTY running the user's shell, auto-launches `claude` inside it,
+// Creates a PTY running the user's shell, optionally auto-launches a command,
 // and streams output back to the frontend via Tauri events. Also supports
 // writing input and resizing the terminal.
 //
@@ -38,7 +38,7 @@ pub fn new_store() -> Mutex<PtyStore> {
 
 /// Spawn a new PTY shell session in the given working directory.
 /// Inherits essential environment variables (SHELL, HOME, USER, PATH),
-/// auto-launches `claude`, and begins streaming output via the "pty-output" event
+/// optionally auto-launches a command, and begins streaming output via the "pty-output" event
 /// scoped to the calling window.
 #[tauri::command]
 pub fn pty_create(
@@ -48,6 +48,7 @@ pub fn pty_create(
     rows: u16,
     cols: u16,
     cwd: String,
+    command: Option<String>,
 ) -> Result<(), String> {
     let window_label = window.label().to_string();
 
@@ -94,9 +95,11 @@ pub fn pty_create(
         .take_writer()
         .map_err(|e| e.to_string())?;
 
-    // Auto-launch claude in the PTY
-    let _ = writer.write_all(b"claude\n");
-    let _ = writer.flush();
+    // Auto-launch command in the PTY if provided
+    if let Some(cmd) = command {
+        let _ = writer.write_all(format!("{}\n", cmd).as_bytes());
+        let _ = writer.flush();
+    }
 
     {
         let mut guard = store.lock().map_err(|e| e.to_string())?;
