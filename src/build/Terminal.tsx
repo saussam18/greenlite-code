@@ -10,9 +10,10 @@ interface TerminalProps {
   isVisible: boolean;
   cwd: string;
   terminalCommand?: string;
+  terminalId: string;
 }
 
-export function Terminal({ isVisible, cwd, terminalCommand }: TerminalProps) {
+export function Terminal({ isVisible, cwd, terminalCommand, terminalId }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -64,20 +65,23 @@ export function Terminal({ isVisible, cwd, terminalCommand }: TerminalProps) {
 
     const { rows, cols } = term;
 
-    await invoke("pty_create", { rows, cols, cwd, command: terminalCommand });
+    await invoke("pty_create", { rows, cols, cwd, command: terminalCommand, terminalId });
 
-    unlistenRef.current = await getCurrentWebviewWindow().listen<string>("pty-output", (event) => {
-      term.write(event.payload);
-    });
+    unlistenRef.current = await getCurrentWebviewWindow().listen<string>(
+      `pty-output-${terminalId}`,
+      (event) => {
+        term.write(event.payload);
+      }
+    );
 
     term.onData((data: string) => {
-      invoke("pty_write", { data }).catch(console.error);
+      invoke("pty_write", { data, terminalId }).catch(console.error);
     });
 
     term.onResize(({ rows, cols }) => {
-      invoke("pty_resize", { rows, cols }).catch(console.error);
+      invoke("pty_resize", { rows, cols, terminalId }).catch(console.error);
     });
-  }, [cwd, terminalCommand]);
+  }, [cwd, terminalCommand, terminalId]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -110,17 +114,15 @@ export function Terminal({ isVisible, cwd, terminalCommand }: TerminalProps) {
     return () => {
       unlistenRef.current?.();
       xtermRef.current?.dispose();
+      invoke("pty_destroy", { terminalId }).catch(console.error);
     };
-  }, []);
+  }, [terminalId]);
 
   return (
     <div
       className="flex flex-col flex-1 bg-[#1a1a1a] min-h-0"
       style={{ display: isVisible ? "flex" : "none" }}
     >
-      <div className="flex items-center px-3 py-1 bg-[#2d2d2d] border-b border-[#404040] text-[11px] tracking-wider text-[#888] shrink-0 select-none">
-        <span>TERMINAL</span>
-      </div>
       <div ref={containerRef} className="terminal-container flex-1 overflow-hidden p-1 min-h-0" />
     </div>
   );

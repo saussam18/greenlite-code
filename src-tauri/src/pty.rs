@@ -1,9 +1,9 @@
-// PTY commands — manage a pseudo-terminal session for the integrated terminal.
-// Creates a PTY running the user's shell, optionally auto-launches a command,
+// PTY commands — manage pseudo-terminal sessions for the integrated terminal.
+// Creates PTYs running the user's shell, optionally auto-launches a command,
 // and streams output back to the frontend via Tauri events. Also supports
 // writing input and resizing the terminal.
 //
-// Each window gets its own independent PTY session, keyed by window label.
+// Each terminal tab gets its own PTY session, keyed by "window_label:terminal_id".
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
@@ -27,9 +27,20 @@ impl PtyStore {
         }
     }
 
-    pub fn remove(&mut self, label: &str) {
-        self.sessions.remove(label);
+    /// Remove all PTY sessions for a given window (keys starting with "label:")
+    pub fn remove_by_window(&mut self, label: &str) {
+        let prefix = format!("{}:", label);
+        self.sessions.retain(|key, _| !key.starts_with(&prefix));
     }
+
+    /// Remove a single PTY session by composite key
+    pub fn remove_one(&mut self, key: &str) {
+        self.sessions.remove(key);
+    }
+}
+
+fn composite_key(window_label: &str, terminal_id: &str) -> String {
+    format!("{}:{}", window_label, terminal_id)
 }
 
 pub fn new_store() -> Mutex<PtyStore> {
@@ -38,7 +49,7 @@ pub fn new_store() -> Mutex<PtyStore> {
 
 /// Spawn a new PTY shell session in the given working directory.
 /// Inherits essential environment variables (SHELL, HOME, USER, PATH),
-/// optionally auto-launches a command, and begins streaming output via the "pty-output" event
+/// optionally auto-launches a command, and begins streaming output via the "pty-output-{terminalId}" event
 /// scoped to the calling window.
 #[tauri::command]
 pub fn pty_create(
@@ -49,8 +60,10 @@ pub fn pty_create(
     cols: u16,
     cwd: String,
     command: Option<String>,
+    terminal_id: String,
 ) -> Result<(), String> {
     let window_label = window.label().to_string();
+    let key = composite_key(&window_label, &terminal_id);
 
     let pty_system = native_pty_system();
 
@@ -104,7 +117,7 @@ pub fn pty_create(
     {
         let mut guard = store.lock().map_err(|e| e.to_string())?;
         guard.sessions.insert(
-            window_label.clone(),
+            key,
             PtyEntry {
                 master: pty_pair.master,
                 writer,
@@ -112,8 +125,9 @@ pub fn pty_create(
         );
     }
 
-    // Stream output to the originating window only
+    // Stream output to the originating window only, scoped by terminal_id
     let label_for_thread = window_label.clone();
+    let event_name = format!("pty-output-{}", terminal_id);
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
         let mut pending: Vec<u8> = Vec::new();
@@ -127,7 +141,7 @@ pub fn pty_create(
                     loop {
                         match std::str::from_utf8(&pending) {
                             Ok(valid_str) => {
-                                let _ = app.emit_to(&label_for_thread, "pty-output", valid_str.to_string());
+                                let _ = app.emit_to(&label_for_thread, &event_name, valid_str.to_string());
                                 pending.clear();
                                 break;
                             }
@@ -141,7 +155,7 @@ pub fn pty_create(
                                 let valid_part = &pending[..valid_up_to];
 
                                 if let Ok(valid_str) = std::str::from_utf8(valid_part) {
-                                    let _ = app.emit_to(&label_for_thread, "pty-output", valid_str.to_string());
+                                    let _ = app.emit_to(&label_for_thread, &event_name, valid_str.to_string());
                                 }
 
                                 pending = pending[valid_up_to..].to_vec();
@@ -156,17 +170,18 @@ pub fn pty_create(
     Ok(())
 }
 
-/// Write raw input data (keystrokes) to the PTY for the calling window.
+/// Write raw input data (keystrokes) to the PTY for the specified terminal.
 #[tauri::command]
 pub fn pty_write(
     window: WebviewWindow,
     store: State<'_, Mutex<PtyStore>>,
     data: String,
+    terminal_id: String,
 ) -> Result<(), String> {
     let mut guard = store.lock().map_err(|e| e.to_string())?;
-    let label = window.label();
+    let key = composite_key(window.label(), &terminal_id);
 
-    if let Some(entry) = guard.sessions.get_mut(label) {
+    if let Some(entry) = guard.sessions.get_mut(&key) {
         entry
             .writer
             .write_all(data.as_bytes())
@@ -177,18 +192,19 @@ pub fn pty_write(
     Ok(())
 }
 
-/// Resize the PTY to match the frontend terminal dimensions for the calling window.
+/// Resize the PTY to match the frontend terminal dimensions for the specified terminal.
 #[tauri::command]
 pub fn pty_resize(
     window: WebviewWindow,
     store: State<'_, Mutex<PtyStore>>,
     rows: u16,
     cols: u16,
+    terminal_id: String,
 ) -> Result<(), String> {
     let guard = store.lock().map_err(|e| e.to_string())?;
-    let label = window.label();
+    let key = composite_key(window.label(), &terminal_id);
 
-    if let Some(entry) = guard.sessions.get(label) {
+    if let Some(entry) = guard.sessions.get(&key) {
         entry
             .master
             .resize(PtySize {
@@ -203,13 +219,15 @@ pub fn pty_resize(
     Ok(())
 }
 
-/// Clean up the PTY session for the calling window.
+/// Clean up a single PTY session for the specified terminal.
 #[tauri::command]
 pub fn pty_destroy(
     window: WebviewWindow,
     store: State<'_, Mutex<PtyStore>>,
+    terminal_id: String,
 ) -> Result<(), String> {
     let mut guard = store.lock().map_err(|e| e.to_string())?;
-    guard.remove(window.label());
+    let key = composite_key(window.label(), &terminal_id);
+    guard.remove_one(&key);
     Ok(())
 }

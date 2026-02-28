@@ -30,7 +30,7 @@ pub fn run() {
                 let label = window.label().to_string();
                 if let Some(store) = window.try_state::<std::sync::Mutex<pty::PtyStore>>() {
                     if let Ok(mut guard) = store.lock() {
-                        guard.remove(&label);
+                        guard.remove_by_window(&label);
                     }
                 }
             }
