@@ -49,7 +49,8 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
   const [newBranchName, setNewBranchName] = useState("");
   const intervalRef = useRef<number | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const commitInputRef = useRef<HTMLInputElement>(null);
+  const commitInputRef = useRef<HTMLTextAreaElement>(null);
+  const commitDialogRef = useRef<HTMLDivElement>(null);
   const branchPopoverRef = useRef<HTMLDivElement>(null);
   const newBranchInputRef = useRef<HTMLInputElement>(null);
 
@@ -97,6 +98,19 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
     if (showCommit && commitInputRef.current) {
       commitInputRef.current.focus();
     }
+  }, [showCommit]);
+
+  // Close commit dialog on click outside
+  useEffect(() => {
+    if (!showCommit) return;
+    const handleClick = (e: MouseEvent) => {
+      if (commitDialogRef.current && !commitDialogRef.current.contains(e.target as Node)) {
+        setShowCommit(false);
+        setCommitMsg("");
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
   }, [showCommit]);
 
   const openBranchSwitcher = async () => {
@@ -268,43 +282,70 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject 
       {/* Right: git actions + changed files summary */}
       <div className="relative flex items-center justify-end flex-1 min-w-0 gap-2">
         {/* Commit + Push */}
-        {showCommit ? (
-          <form
-            className="flex items-center gap-1 shrink-0"
-            onSubmit={(e) => { e.preventDefault(); handleCommitAndPush(); }}
+        <button
+          disabled={!info?.dirty}
+          onClick={() => setShowCommit(true)}
+          className={`px-2 py-0.5 border rounded text-[11px] font-bold tracking-wider cursor-pointer bg-transparent disabled:opacity-40 disabled:cursor-default shrink-0 ${
+            showCommit
+              ? "text-[#6a9955] border-[#6a9955]"
+              : "text-[#888] border-[#404040] hover:text-[#ccc] hover:border-[#555]"
+          }`}
+        >
+          Commit &amp; Push
+        </button>
+
+        {showCommit && (
+          <div
+            ref={commitDialogRef}
+            className="absolute bottom-full right-0 mb-1 bg-[#252526] border border-[#404040] rounded shadow-[0_4px_16px_rgba(0,0,0,0.4)] w-[400px] z-50"
           >
-            <input
-              ref={commitInputRef}
-              type="text"
-              className="bg-[#2a2a2a] border border-[#555] rounded text-[11px] text-[#d4d4d4] px-1.5 py-0 h-[20px] w-[160px] font-mono outline-none focus:border-[#888]"
-              placeholder="Commit message…"
-              value={commitMsg}
-              onChange={(e) => setCommitMsg(e.target.value)}
-              disabled={committing}
-            />
-            <button
-              type="submit"
-              disabled={!commitMsg.trim() || committing}
-              className="px-2 py-0 border rounded text-[11px] font-bold tracking-wider cursor-pointer bg-transparent text-[#6a9955] border-[#6a9955] hover:bg-[#6a9955]/20 disabled:opacity-40 disabled:cursor-default h-[20px]"
-            >
-              {committing ? "…" : "Push"}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setShowCommit(false); setCommitMsg(""); }}
-              className="px-1 py-0 border rounded text-[11px] font-bold cursor-pointer bg-transparent text-[#888] border-[#404040] hover:text-[#ccc] h-[20px]"
-            >
-              ✕
-            </button>
-          </form>
-        ) : (
-          <button
-            disabled={!info?.dirty}
-            onClick={() => setShowCommit(true)}
-            className="px-2 py-0.5 border rounded text-[11px] font-bold tracking-wider cursor-pointer bg-transparent text-[#888] border-[#404040] hover:text-[#ccc] hover:border-[#555] disabled:opacity-40 disabled:cursor-default shrink-0"
-          >
-            Commit &amp; Push
-          </button>
+            <div className="px-3 py-1.5 text-[11px] text-[#888] font-semibold uppercase tracking-wider border-b border-[#404040]">
+              Commit &amp; Push
+            </div>
+            <div className="p-3">
+              <textarea
+                ref={commitInputRef}
+                className="w-full min-h-[120px] bg-[#1e1e1e] border border-[#555] rounded text-[13px] text-[#d4d4d4] px-3 py-2 font-mono outline-none focus:border-[#6a9955] resize-y"
+                placeholder="Commit message…"
+                value={commitMsg}
+                onChange={(e) => setCommitMsg(e.target.value)}
+                disabled={committing}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    handleCommitAndPush();
+                  }
+                  if (e.key === "Escape") {
+                    setShowCommit(false);
+                    setCommitMsg("");
+                  }
+                }}
+              />
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-[11px] text-[#555]">
+                  {files.length} changed file{files.length !== 1 ? "s" : ""}
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-[#555]">Cmd+Enter to submit</span>
+                  <button
+                    type="button"
+                    onClick={() => { setShowCommit(false); setCommitMsg(""); }}
+                    className="px-3 py-1 border rounded text-[11px] font-bold cursor-pointer bg-transparent text-[#888] border-[#404040] hover:text-[#ccc] hover:border-[#555]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCommitAndPush}
+                    disabled={!commitMsg.trim() || committing}
+                    className="px-3 py-1 border rounded text-[11px] font-bold tracking-wider cursor-pointer bg-transparent text-[#6a9955] border-[#6a9955] hover:bg-[#6a9955]/20 disabled:opacity-40 disabled:cursor-default"
+                  >
+                    {committing ? "Pushing…" : "Commit & Push"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Revert All */}
