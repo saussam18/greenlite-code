@@ -86,18 +86,35 @@ export function ReviewEditor({
   const [fileCommentEndLine, setFileCommentEndLine] = useState<number | null>(null);
   const [fileCommentText, setFileCommentText] = useState("");
 
-  // Selection state (column-aware)
-  const [selectingSide, setSelectingSide] = useState<"old" | "new" | null>(null);
-  const [selectionStart, setSelectionStart] = useState<SelectionAnchor | null>(null);
-  const [selectionEnd, setSelectionEnd] = useState<SelectionAnchor | null>(null);
-  const [isSelecting, setIsSelecting] = useState(false);
+  // Selection state (column-aware) — stored in a ref for perf, rendered via version counter
+  const selectionRef = useRef<{
+    side: "old" | "new" | null;
+    start: SelectionAnchor | null;
+    end: SelectionAnchor | null;
+    endRow: number | null;
+    isSelecting: boolean;
+  }>({ side: null, start: null, end: null, endRow: null, isSelecting: false });
+  const [selVersion, setSelVersion] = useState(0);
+  const rafIdRef = useRef<number>(0);
+  const bumpSelVersion = () => setSelVersion(v => v + 1);
 
-  // Measure monospace char width
+  // Aliases for render — refreshed each render via selVersion dependency
+  const selectingSide = selectionRef.current.side;
+  const selectionStart = selectionRef.current.start;
+  const selectionEnd = selectionRef.current.end;
+  const selEndRow = selectionRef.current.endRow;
+  const isSelecting = selectionRef.current.isSelecting;
+
+  // Measure monospace char width + code span padding
   const charWidthRef = useRef<number>(0);
+  const paddingLeftRef = useRef<number>(0);
   const measureRef = useRef<HTMLSpanElement | null>(null);
   useEffect(() => {
     if (isVisible && measureRef.current) {
       charWidthRef.current = measureRef.current.getBoundingClientRect().width;
+      // Measure padding from an existing code span, or use the known 0.5rem default
+      const codeSpan = document.querySelector('[data-code-span]') as HTMLElement | null;
+      paddingLeftRef.current = codeSpan ? parseFloat(getComputedStyle(codeSpan).paddingLeft) || 8 : 8;
     }
   }, [isVisible]);
 
@@ -122,14 +139,15 @@ export function ReviewEditor({
   const [popoverSuppressed, setPopoverSuppressed] = useState(false);
   const popoverSuppressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Visual row index of selection end (for popover positioning in diff view)
-  const [selEndRow, setSelEndRow] = useState<number | null>(null);
-
   const clearSelection = () => {
-    setSelectingSide(null);
-    setSelectionStart(null);
-    setSelectionEnd(null);
-    setSelEndRow(null);
+    const sel = selectionRef.current;
+    sel.side = null;
+    sel.start = null;
+    sel.end = null;
+    sel.endRow = null;
+    sel.isSelecting = false;
+    if (rafIdRef.current) { cancelAnimationFrame(rafIdRef.current); rafIdRef.current = 0; }
+    bumpSelVersion();
     setShowCommentInput(false);
     setCommentInput("");
   };
@@ -138,7 +156,7 @@ export function ReviewEditor({
     const charWidth = charWidthRef.current;
     if (!charWidth) return 0;
     const rect = codeSpan.getBoundingClientRect();
-    const paddingLeft = parseFloat(getComputedStyle(codeSpan).paddingLeft) || 0;
+    const paddingLeft = paddingLeftRef.current;
     const col = Math.floor((e.clientX - rect.left - paddingLeft) / charWidth);
     return Math.max(0, Math.min(col, lineText.length));
   };
@@ -163,21 +181,25 @@ export function ReviewEditor({
   const handleLineDoubleClick = (side: "old" | "new", lineNum: number, col: number, row: number, lineText: string) => {
     const { start, end } = getWordBoundsAt(lineText, col);
     if (start === end) return;
-    setIsSelecting(false);
-    setSelectingSide(side);
-    setSelectionStart({ line: lineNum, col: start });
-    setSelectionEnd({ line: lineNum, col: end });
-    setSelEndRow(row);
+    const sel = selectionRef.current;
+    sel.isSelecting = false;
+    sel.side = side;
+    sel.start = { line: lineNum, col: start };
+    sel.end = { line: lineNum, col: end };
+    sel.endRow = row;
+    bumpSelVersion();
     setShowCommentInput(false);
     setCommentInput("");
   };
 
   const handleLineMouseDown = (side: "old" | "new", lineNum: number, col: number, row: number) => {
-    setIsSelecting(true);
-    setSelectingSide(side);
-    setSelectionStart({ line: lineNum, col });
-    setSelectionEnd({ line: lineNum, col });
-    setSelEndRow(row);
+    const sel = selectionRef.current;
+    sel.isSelecting = true;
+    sel.side = side;
+    sel.start = { line: lineNum, col };
+    sel.end = { line: lineNum, col };
+    sel.endRow = row;
+    bumpSelVersion();
     setShowCommentInput(false);
     setCommentInput("");
     // Suppress popover briefly to prevent it appearing between double-click mousedowns
@@ -187,31 +209,53 @@ export function ReviewEditor({
   };
 
   const handleLineMouseMove = (side: "old" | "new", lineNum: number, col: number, row: number) => {
-    if (isSelecting && side === selectingSide) {
-      setSelectionEnd({ line: lineNum, col });
-      setSelEndRow(row);
+    const sel = selectionRef.current;
+    if (sel.isSelecting && side === sel.side) {
+      sel.end = { line: lineNum, col };
+      sel.endRow = row;
+      // Throttle re-renders to ~60fps via rAF
+      if (!rafIdRef.current) {
+        rafIdRef.current = requestAnimationFrame(() => {
+          rafIdRef.current = 0;
+          bumpSelVersion();
+        });
+      }
     }
   };
 
   const handleMouseUp = () => {
-    if (isSelecting) setIsSelecting(false);
+    const sel = selectionRef.current;
+    if (sel.isSelecting) {
+      sel.isSelecting = false;
+      // Flush any pending rAF and do a final render
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = 0;
+      }
+      bumpSelVersion();
+    }
   };
 
   useEffect(() => {
     document.addEventListener("mouseup", handleMouseUp);
     return () => document.removeEventListener("mouseup", handleMouseUp);
-  });
+  }, []);
+
+  // Cleanup rAF on unmount
+  useEffect(() => {
+    return () => { if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current); };
+  }, []);
 
   // Normalized selection: earlier anchor first
   const selNorm: { start: SelectionAnchor; end: SelectionAnchor } | null = useMemo(() => {
-    if (!selectionStart || !selectionEnd) return null;
-    const a = selectionStart;
-    const b = selectionEnd;
+    const { start: a, end: b } = selectionRef.current;
+    if (!a || !b) return null;
     if (a.line < b.line || (a.line === b.line && a.col <= b.col)) {
       return { start: a, end: b };
     }
     return { start: b, end: a };
-  }, [selectionStart, selectionEnd]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selVersion]);
 
   const getLineHighlight = (side: "old" | "new", lineNum: number, lineLength: number): { startCol: number; endCol: number } | null => {
     if (selectingSide !== side || !selNorm) return null;
@@ -539,6 +583,19 @@ export function ReviewEditor({
     return matches;
   }, [searchQuery, searchOpen, viewMode, editContent, fileContent, diff]);
 
+  // Pre-index search matches by side:line for O(1) lookup per line
+  const searchMatchIndex = useMemo(() => {
+    const map = new Map<string, { startCol: number; endCol: number; idx: number }[]>();
+    for (let i = 0; i < searchMatches.length; i++) {
+      const m = searchMatches[i];
+      const key = `${m.side}:${m.line}`;
+      let arr = map.get(key);
+      if (!arr) { arr = []; map.set(key, arr); }
+      arr.push({ startCol: m.startCol, endCol: m.endCol, idx: i });
+    }
+    return map;
+  }, [searchMatches]);
+
   // Clamp currentMatch when matches change
   useEffect(() => {
     if (searchMatches.length === 0) {
@@ -827,12 +884,16 @@ export function ReviewEditor({
 
   const renderCodeLineContent = (side: "old" | "new", line: DiffLine, lineNum: number | undefined, config: CodeLineConfig, isSpacer?: boolean, tokens?: Token[]) => {
     const lineLength = line.text.length;
-    const selHighlight = config.showSelection && lineNum != null ? getLineHighlight(side, lineNum, lineLength) : null;
-    const comment = lineNum != null ? findComment(side, lineNum) : undefined;
-    const commentHL = comment ? getCommentHighlight(side, lineNum!, lineLength, comment) : null;
+    // Use pre-computed values from config if available (passed by renderDiffLine), else compute
+    const selHighlight = "selHighlight" in config ? config.selHighlight! : (config.showSelection && lineNum != null ? getLineHighlight(side, lineNum, lineLength) : null);
+    const comment = "comment" in config ? config.comment : (lineNum != null ? findComment(side, lineNum) : undefined);
+    const commentHL = "commentHL" in config ? config.commentHL! : (comment ? getCommentHighlight(side, lineNum!, lineLength, comment) : null);
 
     const isFullLineSelection = selHighlight && selHighlight.startCol === 0 && selHighlight.endCol >= lineLength;
     const isFullLineComment = commentHL && commentHL.startCol === 0 && commentHL.endCol >= lineLength;
+
+    // Search match highlights — O(1) lookup via pre-indexed map
+    const lineSearchMatches = searchOpen && searchQuery && lineNum != null ? searchMatchIndex.get(`${side}:${lineNum}`) : undefined;
 
     return (
       <span
@@ -848,18 +909,16 @@ export function ReviewEditor({
           lineLength
         )}
         {/* Search match highlights */}
-        {searchOpen && searchQuery && lineNum != null && searchMatches.map((m, mi) => (
-          m.side === side && m.line === lineNum ? (
-            <span
-              key={`s${mi}`}
-              className="absolute top-0 bottom-0 pointer-events-none"
-              style={{
-                left: `calc(0.5rem + ${m.startCol}ch)`,
-                width: `${m.endCol - m.startCol}ch`,
-                backgroundColor: mi === currentMatch ? "rgba(255,200,0,0.5)" : "rgba(255,200,0,0.3)",
-              }}
-            />
-          ) : null
+        {lineSearchMatches?.map((m) => (
+          <span
+            key={`s${m.idx}`}
+            className="absolute top-0 bottom-0 pointer-events-none"
+            style={{
+              left: `calc(0.5rem + ${m.startCol}ch)`,
+              width: `${m.endCol - m.startCol}ch`,
+              backgroundColor: m.idx === currentMatch ? "rgba(255,200,0,0.5)" : "rgba(255,200,0,0.3)",
+            }}
+          />
         ))}
         {/* Blinking cursor at selection end */}
         {config.showSelection && selectingSide === side && selectionEnd && selectionEnd.line === lineNum && !isSelecting && (
@@ -904,44 +963,46 @@ export function ReviewEditor({
       <div key={i}>
         <div
           {...lineDataAttrs}
-          className={`flex items-stretch min-h-[21px] leading-[21px] select-none transition-colors duration-300 ${
+          className={`flex items-stretch min-h-[21px] leading-[21px] select-none ${
             isSpacer ? "bg-[rgba(128,128,128,0.04)]" : ""
           } ${bgClass} ${lineNum != null ? "cursor-text hover:bg-white/[0.03]" : ""}`}
           onMouseDown={(e) => {
             if (lineNum == null) return;
-            const codeSpan = e.currentTarget.querySelector('[data-code-span]') as HTMLElement | null;
+            const codeSpan = e.currentTarget.lastElementChild as HTMLElement | null;
             const col = codeSpan ? getColFromEvent(e, codeSpan, line.text) : 0;
             handleLineMouseDown(side, lineNum, col, i);
           }}
           onDoubleClick={(e) => {
             if (lineNum == null) return;
-            const codeSpan = e.currentTarget.querySelector('[data-code-span]') as HTMLElement | null;
+            const codeSpan = e.currentTarget.lastElementChild as HTMLElement | null;
             const col = codeSpan ? getColFromEvent(e, codeSpan, line.text) : 0;
             handleLineDoubleClick(side, lineNum, col, i, line.text);
           }}
           onMouseMove={(e) => {
             if (lineNum == null) return;
-            const codeSpan = e.currentTarget.querySelector('[data-code-span]') as HTMLElement | null;
+            const codeSpan = e.currentTarget.lastElementChild as HTMLElement | null;
             const col = codeSpan ? getColFromEvent(e, codeSpan, line.text) : 0;
             handleLineMouseMove(side, lineNum, col, i);
           }}
           onContextMenu={(e) => {
             if (lineNum == null) return;
             e.preventDefault();
-            const codeSpan = e.currentTarget.querySelector('[data-code-span]') as HTMLElement | null;
+            const codeSpan = e.currentTarget.lastElementChild as HTMLElement | null;
             const col = codeSpan ? getColFromEvent(e, codeSpan, line.text) : 0;
             // If no existing selection, create a point selection at the right-click position
             if (!selNorm || selectingSide !== side) {
-              setSelectingSide(side);
-              setSelectionStart({ line: lineNum, col });
-              setSelectionEnd({ line: lineNum, col });
-              setSelEndRow(i);
+              const sel = selectionRef.current;
+              sel.side = side;
+              sel.start = { line: lineNum, col };
+              sel.end = { line: lineNum, col };
+              sel.endRow = i;
+              bumpSelVersion();
             }
             setShowCommentInput(true);
           }}
         >
           {renderGutterCell(side, lineNum)}
-          {renderCodeLineContent(side, line, lineNum, { showSelection: true, showDiffColors: isDiffPane }, isSpacer, tokens)}
+          {renderCodeLineContent(side, line, lineNum, { showSelection: true, showDiffColors: isDiffPane, selHighlight, comment, commentHL }, isSpacer, tokens)}
         </div>
         {lineNum != null && renderInlineThread(side, lineNum)}
       </div>

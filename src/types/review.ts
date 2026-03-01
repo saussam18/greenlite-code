@@ -49,4 +49,8 @@ export interface GutterConfig {
 export interface CodeLineConfig {
   showSelection: boolean;
   showDiffColors: boolean;
+  /** Pre-computed values passed from renderDiffLine to avoid recomputation */
+  selHighlight?: { startCol: number; endCol: number } | null;
+  comment?: Comment;
+  commentHL?: { startCol: number; endCol: number } | null;
 }
