@@ -4,7 +4,7 @@ import { detectLanguage, tokenizeLine, type Language, type Token } from "../../g
 import type { Comment, DiffLine, SelectionAnchor } from "../../types/review";
 import { CommentThread } from "../comments/CommentThread";
 import { CommentCard } from "../comments/CommentCard";
-import { MessageSquarePlus, MessageSquare } from "lucide-react";
+import { MessageSquarePlus, MessageSquare, ChevronUp, ChevronDown, X } from "lucide-react";
 import { FileEditorHeader } from "./FileEditorHeader";
 import { FileCommentPanel } from "../comments/FileCommentPanel";
 import { ImageViewer } from "./ImageViewer";
@@ -84,6 +84,7 @@ export function ReviewEditor({
   const lineNumRef = useRef<HTMLDivElement | null>(null);
   const highlightRef = useRef<HTMLPreElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
+  const searchOverlayRef = useRef<HTMLDivElement | null>(null);
 
   // File view comment (supports multi-line range)
   const [fileCommentStartLine, setFileCommentStartLine] = useState<number | null>(null);
@@ -115,6 +116,12 @@ export function ReviewEditor({
   // Read-only toast for diff view
   const [readOnlyToast, setReadOnlyToast] = useState(false);
   const readOnlyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Search state
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentMatch, setCurrentMatch] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Visual row index of selection end (for popover positioning in diff view)
   const [selEndRow, setSelEndRow] = useState<number | null>(null);
@@ -357,11 +364,27 @@ export function ReviewEditor({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isVisible, viewMode, browseSelectedFile, editContent]);
 
-  // Escape key + read-only toast for diff view typing
+  // Escape key + Ctrl+F search + read-only toast for diff view typing
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isVisible) return;
-      if (e.key === "Escape") clearSelection();
+      // Ctrl/Cmd+F → open search
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+        e.preventDefault();
+        setSearchOpen(true);
+        setTimeout(() => searchInputRef.current?.focus(), 0);
+        return;
+      }
+      if (e.key === "Escape") {
+        if (searchOpen) {
+          setSearchOpen(false);
+          setSearchQuery("");
+          setCurrentMatch(0);
+        } else {
+          clearSelection();
+        }
+        return;
+      }
       // Show read-only toast when typing in diff view
       if (viewMode === "diff" && selectingSide && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.length === 1) {
         if (readOnlyTimer.current) clearTimeout(readOnlyTimer.current);
@@ -371,7 +394,7 @@ export function ReviewEditor({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isVisible, viewMode, selectingSide]);
+  }, [isVisible, viewMode, selectingSide, searchOpen]);
 
   // Scroll metrics for scroll decorations viewport indicator
   const [scrollMetrics, setScrollMetrics] = useState<Record<string, { scrollTop: number; scrollHeight: number; clientHeight: number }>>({});
@@ -437,6 +460,99 @@ export function ReviewEditor({
     }, 100);
     return () => clearTimeout(timer);
   }, [scrollToCommentId]);
+
+  // Search match computation
+  const searchMatches = useMemo(() => {
+    if (!searchQuery || !searchOpen) return [];
+    const query = searchQuery.toLowerCase();
+    const matches: { line: number; startCol: number; endCol: number; side: "old" | "new" }[] = [];
+
+    if (viewMode === "file" && fileContent !== null) {
+      const lines = editContent.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        const lower = lines[i].toLowerCase();
+        let idx = 0;
+        while ((idx = lower.indexOf(query, idx)) !== -1) {
+          matches.push({ line: i + 1, startCol: idx, endCol: idx + query.length, side: "new" });
+          idx += 1;
+        }
+      }
+    } else if (plainContent !== null) {
+      const side: "old" | "new" = selectedStatus === "D" ? "old" : "new";
+      const lines = plainContent.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        const lower = lines[i].toLowerCase();
+        let idx = 0;
+        while ((idx = lower.indexOf(query, idx)) !== -1) {
+          matches.push({ line: i + 1, startCol: idx, endCol: idx + query.length, side });
+          idx += 1;
+        }
+      }
+    } else if (diff) {
+      // Interleave matches by visual row so navigation goes top-to-bottom across both panes
+      for (let ri = 0; ri < diff.left.length; ri++) {
+        const leftLine = diff.left[ri];
+        const leftLineNum = leftLine.oldLineNum;
+        if (leftLineNum != null) {
+          const lower = leftLine.text.toLowerCase();
+          let idx = 0;
+          while ((idx = lower.indexOf(query, idx)) !== -1) {
+            matches.push({ line: leftLineNum, startCol: idx, endCol: idx + query.length, side: "old" });
+            idx += 1;
+          }
+        }
+        const rightLine = diff.right[ri];
+        const rightLineNum = rightLine.newLineNum;
+        if (rightLineNum != null) {
+          const lower = rightLine.text.toLowerCase();
+          let idx = 0;
+          while ((idx = lower.indexOf(query, idx)) !== -1) {
+            matches.push({ line: rightLineNum, startCol: idx, endCol: idx + query.length, side: "new" });
+            idx += 1;
+          }
+        }
+      }
+    }
+
+    return matches;
+  }, [searchQuery, searchOpen, viewMode, editContent, fileContent, diff, plainContent, selectedStatus]);
+
+  // Clamp currentMatch when matches change
+  useEffect(() => {
+    if (searchMatches.length === 0) {
+      setCurrentMatch(0);
+    } else if (currentMatch >= searchMatches.length) {
+      setCurrentMatch(0);
+    }
+  }, [searchMatches.length]);
+
+  // Scroll to current match
+  useEffect(() => {
+    if (searchMatches.length === 0 || !searchOpen) return;
+    const match = searchMatches[currentMatch];
+    if (!match) return;
+    const lineHeight = 21;
+
+    if (viewMode === "file") {
+      if (editorRef.current) {
+        const targetScroll = (match.line - 1) * lineHeight - editorRef.current.clientHeight / 2 + lineHeight;
+        editorRef.current.scrollTop = Math.max(0, targetScroll);
+        if (highlightRef.current) highlightRef.current.scrollTop = editorRef.current.scrollTop;
+        if (lineNumRef.current) lineNumRef.current.scrollTop = editorRef.current.scrollTop;
+        if (overlayRef.current) overlayRef.current.scrollTop = editorRef.current.scrollTop;
+        if (searchOverlayRef.current) searchOverlayRef.current.scrollTop = editorRef.current.scrollTop;
+      }
+    } else {
+      const side = match.side;
+      const pane = paneScrollRefs.current[side];
+      if (pane) {
+        const el = pane.querySelector(`[data-line-${side}="${match.line}"]`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }
+    }
+  }, [currentMatch, searchMatches, searchOpen, viewMode]);
 
   // Draggable divider between before/after panes
   const [leftPaneFraction, setLeftPaneFraction] = useState(0.5);
@@ -671,6 +787,20 @@ export function ReviewEditor({
               comment!.resolved ? "rgba(128,128,128,0.05)" : "rgba(78,154,6,0.08)",
               lineLength
             )}
+            {/* Search match highlights */}
+            {searchOpen && searchQuery && lineNum != null && searchMatches.map((m, mi) => (
+              m.side === side && m.line === lineNum ? (
+                <span
+                  key={`s${mi}`}
+                  className="absolute top-0 bottom-0 pointer-events-none"
+                  style={{
+                    left: `calc(0.5rem + ${m.startCol}ch)`,
+                    width: `${m.endCol - m.startCol}ch`,
+                    backgroundColor: mi === currentMatch ? "rgba(255,200,0,0.5)" : "rgba(255,200,0,0.3)",
+                  }}
+                />
+              ) : null
+            ))}
             {/* Blinking cursor at selection end */}
             {selectingSide === side && selectionEnd && selectionEnd.line === lineNum && !isSelecting && (
               <span
@@ -690,6 +820,7 @@ export function ReviewEditor({
     const lines = content.split("\n");
     return (
       <div ref={diffContainerRef} className="flex-1 overflow-auto min-w-0 relative bg-[#1e1e1e]">
+        {searchOpen && renderSearchBar()}
         <div className="sticky top-0 z-10 px-3 py-1 bg-[#2d2d2d] border-b border-[#404040] text-[11px] text-[#888] font-semibold uppercase tracking-wider">
           {label}
         </div>
@@ -829,6 +960,10 @@ export function ReviewEditor({
         if (overlayRef.current) {
           overlayRef.current.scrollTop = scrollTop;
         }
+        if (searchOverlayRef.current) {
+          searchOverlayRef.current.scrollTop = scrollTop;
+          searchOverlayRef.current.scrollLeft = scrollLeft;
+        }
       };
 
       return (
@@ -900,6 +1035,38 @@ export function ReviewEditor({
                 ))}
               </code>
             </pre>
+            {/* Search highlight layer */}
+            {searchOpen && searchQuery && (
+              <div
+                ref={searchOverlayRef}
+                className="absolute inset-0 overflow-hidden pointer-events-none z-[5]"
+              >
+                <code className="block">
+                  {fileLines.map((_, i) => {
+                    const lineNum = i + 1;
+                    const hasMatches = searchMatches.some((m) => m.line === lineNum);
+                    if (!hasMatches) return <div key={i} className="h-[21px]" />;
+                    return (
+                      <div key={i} className="h-[21px] leading-[21px] pl-2 pr-2 relative">
+                        {searchMatches.map((m, mi) =>
+                          m.line === lineNum ? (
+                            <span
+                              key={mi}
+                              className="absolute top-0 bottom-0 pointer-events-none"
+                              style={{
+                                left: `calc(0.5rem + ${m.startCol}ch)`,
+                                width: `${m.endCol - m.startCol}ch`,
+                                backgroundColor: mi === currentMatch ? "rgba(255,200,0,0.5)" : "rgba(255,200,0,0.3)",
+                              }}
+                            />
+                          ) : null
+                        )}
+                      </div>
+                    );
+                  })}
+                </code>
+              </div>
+            )}
             {/* Textarea for editing */}
             <textarea
               ref={editorRef}
@@ -951,10 +1118,71 @@ export function ReviewEditor({
     );
   };
 
+  const renderSearchBar = () => {
+    const matchCount = searchMatches.length;
+    const matchLabel = matchCount > 0 ? `${currentMatch + 1} of ${matchCount}` : "No results";
+
+    return (
+      <div className="absolute top-2 right-6 z-40 flex items-center gap-1 bg-[#2d2d30] border border-[#555] rounded px-2 py-1 shadow-[0_2px_8px_rgba(0,0,0,0.4)]">
+        <input
+          ref={searchInputRef}
+          className="bg-[#1e1e1e] text-[#d4d4d4] border border-[#555] rounded px-2 py-0.5 text-[13px] font-mono outline-none focus:border-[#4e9a06] w-48"
+          placeholder="Find..."
+          value={searchQuery}
+          onChange={(e) => {
+            setSearchQuery(e.target.value);
+            setCurrentMatch(0);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (matchCount === 0) return;
+              if (e.shiftKey) {
+                setCurrentMatch((prev) => (prev - 1 + matchCount) % matchCount);
+              } else {
+                setCurrentMatch((prev) => (prev + 1) % matchCount);
+              }
+            }
+            if (e.key === "Escape") {
+              setSearchOpen(false);
+              setSearchQuery("");
+              setCurrentMatch(0);
+            }
+          }}
+        />
+        <span className="text-[#888] text-[11px] min-w-[60px] text-center whitespace-nowrap">
+          {searchQuery ? matchLabel : ""}
+        </span>
+        <button
+          className="p-0.5 text-[#888] hover:text-[#d4d4d4] cursor-pointer bg-transparent border-none"
+          onClick={() => { if (matchCount > 0) setCurrentMatch((prev) => (prev - 1 + matchCount) % matchCount); }}
+          title="Previous match (Shift+Enter)"
+        >
+          <ChevronUp size={14} />
+        </button>
+        <button
+          className="p-0.5 text-[#888] hover:text-[#d4d4d4] cursor-pointer bg-transparent border-none"
+          onClick={() => { if (matchCount > 0) setCurrentMatch((prev) => (prev + 1) % matchCount); }}
+          title="Next match (Enter)"
+        >
+          <ChevronDown size={14} />
+        </button>
+        <button
+          className="p-0.5 text-[#888] hover:text-[#d4d4d4] cursor-pointer bg-transparent border-none"
+          onClick={() => { setSearchOpen(false); setSearchQuery(""); setCurrentMatch(0); }}
+          title="Close (Escape)"
+        >
+          <X size={14} />
+        </button>
+      </div>
+    );
+  };
+
   const renderContent = () => {
     if (viewMode === "file" && browseSelectedFile) {
       return (
-        <div className="flex-1 overflow-hidden min-w-0 flex flex-col bg-[#1e1e1e]">
+        <div className="flex-1 overflow-hidden min-w-0 flex flex-col bg-[#1e1e1e] relative">
+          {searchOpen && renderSearchBar()}
           <FileEditorHeader
             filePath={browseSelectedFile}
             cwd={cwd}
@@ -990,6 +1218,7 @@ export function ReviewEditor({
       const rightPct = `${(1 - leftPaneFraction) * 100}%`;
       return (
         <div ref={diffContainerRef} className="flex flex-1 overflow-hidden min-h-0 relative">
+          {searchOpen && renderSearchBar()}
           {renderPane("old", diff.left, leftPct)}
           <div
             className="w-[5px] bg-[#404040] shrink-0 cursor-col-resize hover:bg-[#569cd6] active:bg-[#569cd6] transition-colors"

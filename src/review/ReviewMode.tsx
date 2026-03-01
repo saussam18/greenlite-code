@@ -229,6 +229,27 @@ export function ReviewMode({ isVisible, cwd, onModeChange, onReviewInfo }: Revie
     });
   };
 
+  const closeAllTabs = () => {
+    setEditorTabs([]);
+    setActiveTabId(null);
+    setSelectedFile(null);
+    setSelectedStatus(null);
+    setBrowseSelectedFile(null);
+  };
+
+  // Cmd+Shift+W → close all tabs
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isVisible) return;
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "w") {
+        e.preventDefault();
+        closeAllTabs();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isVisible]);
+
   const navigateToComment = (comment: Comment) => {
     // Switch to review mode if not already there
     onModeChange("review");
@@ -372,6 +393,15 @@ export function ReviewMode({ isVisible, cwd, onModeChange, onReviewInfo }: Revie
                   </span>
                 </button>
               ))}
+              {editorTabs.length > 1 && (
+                <button
+                  onClick={closeAllTabs}
+                  className="ml-auto px-2 py-1 text-[10px] text-[#888] hover:text-[#d4d4d4] cursor-pointer bg-transparent border-none shrink-0"
+                  title="Close all tabs (⌘⇧W)"
+                >
+                  Close All
+                </button>
+              )}
             </div>
           )}
 
