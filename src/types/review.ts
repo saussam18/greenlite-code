@@ -16,6 +16,7 @@ export interface ReviewInfo {
   resolvedCount: number;
   onSendToClaude: () => void;
   onNavigateToComment: (comment: Comment) => void;
+  onResolveAll: () => void;
 }
 
 export interface DiffLine {

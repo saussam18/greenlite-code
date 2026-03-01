@@ -1,9 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { MessageSquare, ChevronDown, ChevronUp, Send, FileText } from "lucide-react";
+import { Send } from "lucide-react";
 import type { TerminalCommandSetting, Mode } from "../types/settings";
 import type { ReviewInfo } from "../types/review";
 import type { GitInfo, ChangedFile } from "../types/git";
+import { TerminalPicker } from "./StatusBar/TerminalPicker";
+import { BranchSwitcher } from "./StatusBar/BranchSwitcher";
+import { CommitDialog } from "./StatusBar/CommitDialog";
+import { ChangedFilesPopover } from "./StatusBar/ChangedFilesPopover";
+import { CommentsMenu } from "./StatusBar/CommentsMenu";
 
 interface StatusBarProps {
   repoPath: string;
@@ -16,56 +21,10 @@ interface StatusBarProps {
   reviewInfo?: ReviewInfo | null;
 }
 
-const TERMINAL_LABELS: Record<TerminalCommandSetting, string> = {
-  claude: "Claude",
-  opencode: "OpenCode",
-  copilot: "Copilot",
-  custom: "Custom",
-  none: "None",
-};
-
-const TERMINAL_OPTIONS: { value: TerminalCommandSetting; label: string }[] = [
-  { value: "claude", label: "Claude Code" },
-  { value: "opencode", label: "OpenCode" },
-  { value: "copilot", label: "GitHub Copilot" },
-  { value: "custom", label: "Custom..." },
-  { value: "none", label: "None (bare shell)" },
-];
-
-function statusColor(status: string) {
-  switch (status) {
-    case "M":
-      return "text-[#dcdcaa]";
-    case "A":
-      return "text-[#6a9955]";
-    case "D":
-      return "text-[#f44747]";
-    default:
-      return "text-[#d4d4d4]";
-  }
-}
-
 export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject, terminalSetting, customCommand, onChangeTerminalCommand, reviewInfo }: StatusBarProps) {
   const [info, setInfo] = useState<GitInfo | null>(null);
   const [files, setFiles] = useState<ChangedFile[]>([]);
-  const [showFiles, setShowFiles] = useState(false);
-  const [showCommit, setShowCommit] = useState(false);
-  const [commitMsg, setCommitMsg] = useState("");
-  const [committing, setCommitting] = useState(false);
-  const [showBranches, setShowBranches] = useState(false);
-  const [branches, setBranches] = useState<string[]>([]);
-  const [newBranchName, setNewBranchName] = useState("");
-  const [showTerminalPicker, setShowTerminalPicker] = useState(false);
-  const [terminalCustomCmd, setTerminalCustomCmd] = useState("");
-  const [showCommentsList, setShowCommentsList] = useState(false);
   const intervalRef = useRef<number | null>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const commitInputRef = useRef<HTMLTextAreaElement>(null);
-  const commitDialogRef = useRef<HTMLDivElement>(null);
-  const branchPopoverRef = useRef<HTMLDivElement>(null);
-  const newBranchInputRef = useRef<HTMLInputElement>(null);
-  const terminalPickerRef = useRef<HTMLDivElement>(null);
-  const commentsListRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fetch = () => {
@@ -82,86 +41,6 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
     };
   }, [repoPath]);
 
-  // Close popover on click outside
-  useEffect(() => {
-    if (!showFiles) return;
-    const handleClick = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        setShowFiles(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [showFiles]);
-
-  // Close branch popover on click outside
-  useEffect(() => {
-    if (!showBranches) return;
-    const handleClick = (e: MouseEvent) => {
-      if (branchPopoverRef.current && !branchPopoverRef.current.contains(e.target as Node)) {
-        setShowBranches(false);
-        setNewBranchName("");
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [showBranches]);
-
-  useEffect(() => {
-    if (showCommit && commitInputRef.current) {
-      commitInputRef.current.focus();
-    }
-  }, [showCommit]);
-
-  // Close commit dialog on click outside
-  useEffect(() => {
-    if (!showCommit) return;
-    const handleClick = (e: MouseEvent) => {
-      if (commitDialogRef.current && !commitDialogRef.current.contains(e.target as Node)) {
-        setShowCommit(false);
-        setCommitMsg("");
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [showCommit]);
-
-  const openBranchSwitcher = async () => {
-    try {
-      const list = await invoke<string[]>("git_list_branches", { repoPath });
-      console.log("git_list_branches result:", list);
-      setBranches(list);
-    } catch (e) {
-      console.error("git_list_branches failed:", e);
-      setBranches([]);
-    }
-    setShowBranches(true);
-  };
-
-  const handleCheckout = async (branch: string, isNew: boolean) => {
-    try {
-      await invoke("git_checkout", { repoPath, branch, newBranch: isNew });
-      setShowBranches(false);
-      setNewBranchName("");
-    } catch (e) {
-      alert(`Checkout failed: ${e}`);
-    }
-  };
-
-  const handleCommitAndPush = async () => {
-    if (!commitMsg.trim()) return;
-    setCommitting(true);
-    try {
-      await invoke("git_commit_and_push", { repoPath, message: commitMsg.trim() });
-      setCommitMsg("");
-      setShowCommit(false);
-    } catch (e) {
-      alert(`Commit failed: ${e}`);
-    } finally {
-      setCommitting(false);
-    }
-  };
-
   const handleRevert = async () => {
     if (!window.confirm("Revert ALL changes? This cannot be undone.")) return;
     try {
@@ -170,35 +49,6 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
       alert(`Revert failed: ${e}`);
     }
   };
-
-  // Close terminal picker on click outside
-  useEffect(() => {
-    if (!showTerminalPicker) return;
-    const handleClick = (e: MouseEvent) => {
-      if (terminalPickerRef.current && !terminalPickerRef.current.contains(e.target as Node)) {
-        setShowTerminalPicker(false);
-        setTerminalCustomCmd("");
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [showTerminalPicker]);
-
-  // Close comments list on click outside
-  useEffect(() => {
-    if (!showCommentsList) return;
-    const handleClick = (e: MouseEvent) => {
-      if (commentsListRef.current && !commentsListRef.current.contains(e.target as Node)) {
-        setShowCommentsList(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [showCommentsList]);
-
-  const terminalDisplayLabel = terminalSetting === "custom" && customCommand
-    ? customCommand
-    : TERMINAL_LABELS[terminalSetting];
 
   const tabClass = (mode: Mode) =>
     `px-5 py-1.5 border rounded text-[14px] font-bold tracking-wider cursor-pointer transition-all duration-150 bg-transparent ${
@@ -220,140 +70,17 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
           {repoPath.split("/").pop()}
         </button>
         <span className="text-[#404040] shrink-0">│</span>
-        <div className="relative shrink-0">
-          <button
-            className="flex items-center gap-1.5 text-[13px] text-[#888] hover:text-[#ccc] cursor-pointer bg-transparent border-none font-mono shrink-0"
-            onClick={() => setShowTerminalPicker(!showTerminalPicker)}
-            title="Change terminal command (takes effect on next terminal)"
-          >
-            <span className="text-[#569cd6]">&gt;_</span>
-            <span>{terminalDisplayLabel}</span>
-            <span className="text-[#555] text-[11px]">▼</span>
-          </button>
-          {showTerminalPicker && (
-            <div
-              ref={terminalPickerRef}
-              className="absolute bottom-full left-0 mb-2 bg-[#252526] border border-[#404040] rounded shadow-[0_4px_16px_rgba(0,0,0,0.4)] w-[240px] z-50"
-            >
-              <div className="px-4 py-2.5 text-[13px] text-[#888] font-semibold uppercase tracking-wider border-b border-[#404040] sticky top-0 bg-[#252526]">
-                Terminal Command
-              </div>
-              {TERMINAL_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  className={`flex items-center gap-3 w-full px-4 py-[8px] text-[14px] text-left bg-transparent border-none font-mono cursor-pointer hover:bg-white/[0.05] ${
-                    opt.value === terminalSetting ? "text-[#569cd6]" : "text-[#d4d4d4]"
-                  }`}
-                  onClick={() => {
-                    if (opt.value === "custom") {
-                      // Don't close — show custom input
-                      return;
-                    }
-                    onChangeTerminalCommand(opt.value);
-                    setShowTerminalPicker(false);
-                  }}
-                >
-                  <span className="w-[16px] shrink-0 text-[12px]">
-                    {opt.value === terminalSetting ? "●" : ""}
-                  </span>
-                  <span>{opt.label}</span>
-                </button>
-              ))}
-              <form
-                className="flex items-center gap-2 px-3 py-2.5 border-t border-[#404040]"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (terminalCustomCmd.trim()) {
-                    onChangeTerminalCommand("custom", terminalCustomCmd.trim());
-                    setShowTerminalPicker(false);
-                    setTerminalCustomCmd("");
-                  }
-                }}
-              >
-                <input
-                  type="text"
-                  className="bg-[#1e1e1e] border border-[#555] rounded text-[13px] text-[#d4d4d4] px-2.5 py-1 h-[30px] flex-1 min-w-0 font-mono outline-none focus:border-[#888]"
-                  placeholder="Custom command..."
-                  value={terminalCustomCmd}
-                  onChange={(e) => setTerminalCustomCmd(e.target.value)}
-                />
-                <button
-                  type="submit"
-                  disabled={!terminalCustomCmd.trim()}
-                  className="px-2.5 py-1 border rounded text-[13px] font-bold cursor-pointer bg-transparent text-[#569cd6] border-[#569cd6] hover:bg-[#569cd6]/20 disabled:opacity-40 disabled:cursor-default h-[30px] shrink-0"
-                >
-                  Set
-                </button>
-              </form>
-            </div>
-          )}
-        </div>
+
+        <TerminalPicker
+          terminalSetting={terminalSetting}
+          customCommand={customCommand}
+          onChangeTerminalCommand={onChangeTerminalCommand}
+        />
+
         <span className="text-[#404040] shrink-0">│</span>
         {info ? (
           <>
-            <div className="relative shrink-0">
-              <button
-                className="flex items-center gap-2 text-[#d4d4d4] bg-transparent border-none font-mono text-[14px] cursor-pointer hover:text-white shrink-0"
-                onClick={openBranchSwitcher}
-                title="Switch branch"
-              >
-                <span className="text-[#888]">⎇</span>
-                {info.branch}
-                <span className="text-[#555] text-[11px]">▼</span>
-              </button>
-              {showBranches && (
-                <div
-                  ref={branchPopoverRef}
-                  className="absolute bottom-full left-0 mb-2 bg-[#252526] border border-[#404040] rounded shadow-[0_4px_16px_rgba(0,0,0,0.4)] max-h-[400px] w-[280px] overflow-y-auto z-50"
-                >
-                  <div className="px-4 py-2.5 text-[13px] text-[#888] font-semibold uppercase tracking-wider border-b border-[#404040] sticky top-0 bg-[#252526]">
-                    Branches
-                  </div>
-                  {/* New branch input */}
-                  <form
-                    className="flex items-center gap-2 px-3 py-2.5 border-b border-[#404040]"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      if (newBranchName.trim()) handleCheckout(newBranchName.trim(), true);
-                    }}
-                  >
-                    <input
-                      ref={newBranchInputRef}
-                      type="text"
-                      className="bg-[#1e1e1e] border border-[#555] rounded text-[14px] text-[#d4d4d4] px-2.5 py-1 h-[32px] flex-1 min-w-0 font-mono outline-none focus:border-[#888]"
-                      placeholder="New branch…"
-                      value={newBranchName}
-                      onChange={(e) => setNewBranchName(e.target.value)}
-                      autoFocus
-                    />
-                    <button
-                      type="submit"
-                      disabled={!newBranchName.trim()}
-                      className="px-2.5 py-1 border rounded text-[14px] font-bold cursor-pointer bg-transparent text-[#6a9955] border-[#6a9955] hover:bg-[#6a9955]/20 disabled:opacity-40 disabled:cursor-default h-[32px] shrink-0"
-                    >
-                      +
-                    </button>
-                  </form>
-                  {/* Existing branches */}
-                  {branches.map((b) => (
-                    <button
-                      key={b}
-                      className={`flex items-center gap-3 w-full px-4 py-[8px] text-[14px] text-left bg-transparent border-none font-mono cursor-pointer hover:bg-white/[0.05] ${
-                        b === info.branch ? "text-[#6a9955]" : "text-[#d4d4d4]"
-                      }`}
-                      onClick={() => {
-                        if (b !== info.branch) handleCheckout(b, false);
-                      }}
-                    >
-                      <span className="w-[16px] shrink-0 text-[12px]">
-                        {b === info.branch ? "●" : ""}
-                      </span>
-                      <span className="truncate min-w-0">{b}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <BranchSwitcher repoPath={repoPath} info={info} />
             <span
               className={`shrink-0 ${info.dirty ? "text-[#dcdcaa]" : "text-[#6a9955]"}`}
               title={info.dirty ? "Uncommitted changes" : "Clean"}
@@ -392,54 +119,9 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
 
       {/* Right: actions */}
       <div className="relative flex items-center justify-end flex-1 min-w-0 gap-3">
-        {/* Review comments info + Send to Claude (visible in review mode) */}
         {reviewInfo && (
           <>
-            <div className="relative shrink-0" ref={commentsListRef}>
-              {reviewInfo.openComments.length > 0 ? (
-                <button
-                  className="flex items-center gap-1.5 cursor-pointer hover:text-[#ccc] bg-transparent border-none text-[14px] text-[#888] p-0 font-mono"
-                  onClick={() => setShowCommentsList(!showCommentsList)}
-                >
-                  <MessageSquare size={14} />
-                  {reviewInfo.openComments.length} open comment{reviewInfo.openComments.length !== 1 ? "s" : ""}
-                  {reviewInfo.resolvedCount > 0 && (
-                    <span className="text-[#555]">
-                      &middot; {reviewInfo.resolvedCount} resolved
-                    </span>
-                  )}
-                  {showCommentsList ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                </button>
-              ) : (
-                <span className="flex items-center gap-1.5 text-[14px] text-[#888] font-mono">
-                  <MessageSquare size={14} />
-                  No comments
-                </span>
-              )}
-              {showCommentsList && reviewInfo.openComments.length > 0 && (
-                <div className="absolute bottom-full right-0 mb-2 w-[380px] max-h-[320px] overflow-y-auto bg-[#252526] border border-[#404040] rounded shadow-[0_4px_16px_rgba(0,0,0,0.4)] z-50">
-                  {reviewInfo.openComments.map((c) => (
-                    <button
-                      key={c.id}
-                      className="w-full text-left px-3 py-2 hover:bg-white/[0.06] cursor-pointer border-b border-[#404040] last:border-b-0 bg-transparent border-x-0 border-t-0"
-                      onClick={() => {
-                        reviewInfo.onNavigateToComment(c);
-                        setShowCommentsList(false);
-                      }}
-                    >
-                      <div className="flex items-center gap-1.5 text-[11px] text-[#888] mb-0.5">
-                        <FileText size={11} className="shrink-0" />
-                        <span className="truncate">{c.filePath}</span>
-                        <span className="text-[#555] shrink-0">
-                          L{c.startLine}{c.startLine !== c.endLine ? `–${c.endLine}` : ""}
-                        </span>
-                      </div>
-                      <div className="text-[12px] text-[#d4d4d4] truncate">{c.text}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <CommentsMenu reviewInfo={reviewInfo} />
 
             <button
               className="flex items-center gap-1.5 px-3 py-1.5 border border-[#4e9a06] rounded bg-[#2e6b30] text-[#e0e0e0] cursor-pointer text-[14px] font-bold tracking-wider hover:bg-[#3a8a3c] disabled:opacity-40 disabled:cursor-default disabled:border-[#555] shrink-0"
@@ -453,88 +135,13 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
           </>
         )}
 
-        {/* Commit + Push */}
-        <button
-          disabled={!info?.dirty}
-          onClick={() => setShowCommit(true)}
-          className={`px-3 py-1.5 border rounded text-[14px] font-bold tracking-wider cursor-pointer bg-transparent disabled:opacity-40 disabled:cursor-default shrink-0 ${
-            showCommit
-              ? "text-[#6a9955] border-[#6a9955] bg-[#6a9955]/20"
-              : "text-[#6a9955] border-[#6a9955]/50 hover:bg-[#6a9955]/20 hover:border-[#6a9955]"
-          }`}
-        >
-          Commit &amp; Push
-        </button>
+        <CommitDialog
+          repoPath={repoPath}
+          dirty={!!info?.dirty}
+          fileCount={files.length}
+          onModeChange={onModeChange}
+        />
 
-        {showCommit && (
-          <div
-            ref={commitDialogRef}
-            className="absolute bottom-full right-0 mb-2 bg-[#252526] border border-[#404040] rounded shadow-[0_4px_16px_rgba(0,0,0,0.4)] w-[660px] z-50"
-          >
-            <div className="px-4 py-2.5 text-[13px] text-[#888] font-semibold uppercase tracking-wider border-b border-[#404040]">
-              Commit &amp; Push
-            </div>
-            <div className="p-4">
-              <textarea
-                ref={commitInputRef}
-                className="w-full min-h-[140px] bg-[#1e1e1e] border border-[#555] rounded text-[15px] text-[#d4d4d4] px-4 py-3 font-mono outline-none focus:border-[#6a9955] resize-y"
-                placeholder="Commit message…"
-                value={commitMsg}
-                onChange={(e) => setCommitMsg(e.target.value)}
-                disabled={committing}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault();
-                    handleCommitAndPush();
-                  }
-                  if (e.key === "Escape") {
-                    setShowCommit(false);
-                    setCommitMsg("");
-                  }
-                }}
-              />
-              <div className="flex items-center justify-between mt-3">
-                <span className="text-[13px] text-[#555]">
-                  {files.length} changed file{files.length !== 1 ? "s" : ""}
-                </span>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => { setShowCommit(false); setCommitMsg(""); }}
-                    className="flex-1 px-5 py-2 border rounded text-[13px] font-bold cursor-pointer bg-transparent text-[#888] border-[#404040] hover:text-[#ccc] hover:border-[#555] whitespace-nowrap"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCommitAndPush}
-                    disabled={!commitMsg.trim() || committing}
-                    className="flex-1 px-5 py-2 border rounded text-[13px] font-bold tracking-wider cursor-pointer bg-transparent text-[#6a9955] border-[#6a9955] hover:bg-[#6a9955]/20 disabled:opacity-40 disabled:cursor-default whitespace-nowrap"
-                  >
-                    {committing ? "Pushing…" : "Commit & Push"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      invoke("pty_write", {
-                        data: "commit and push all changes",
-                        terminalId: "term-0",
-                      }).catch(console.error);
-                      setShowCommit(false);
-                      setCommitMsg("");
-                      onModeChange("build");
-                    }}
-                    className="flex-1 px-5 py-2 border rounded text-[13px] font-bold tracking-wider cursor-pointer bg-transparent text-[#569cd6] border-[#569cd6] hover:bg-[#569cd6]/20 whitespace-nowrap"
-                  >
-                    Send to AI
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Revert All */}
         <button
           disabled={!info?.dirty}
           onClick={handleRevert}
@@ -545,52 +152,7 @@ export function StatusBar({ repoPath, activeMode, onModeChange, onChangeProject,
 
         <span className="text-[#404040] shrink-0">│</span>
 
-        {files.length > 0 ? (
-          <button
-            className="flex items-center gap-2 text-[14px] text-[#888] hover:text-[#ccc] cursor-pointer bg-transparent border-none font-mono"
-            onClick={() => setShowFiles(!showFiles)}
-          >
-            {(() => {
-              const counts: Record<string, number> = {};
-              for (const f of files) {
-                const label = f.status;
-                counts[label] = (counts[label] || 0) + 1;
-              }
-              return Object.entries(counts).map(([label, count]) => (
-                <span key={label} className="flex items-center gap-0.5">
-                  <span className={`font-bold ${statusColor(label)}`}>{label}</span>
-                  <span>{count}</span>
-                </span>
-              ));
-            })()}
-            <span className="text-[#555]">({files.length})</span>
-          </button>
-        ) : (
-          <span className="text-[#555]">No changes</span>
-        )}
-
-        {showFiles && files.length > 0 && (
-          <div
-            ref={popoverRef}
-            className="absolute bottom-full right-0 mb-2 bg-[#252526] border border-[#404040] rounded shadow-[0_4px_16px_rgba(0,0,0,0.4)] max-h-[400px] w-[400px] overflow-y-auto z-50"
-          >
-            <div className="px-4 py-2.5 text-[13px] text-[#888] font-semibold uppercase tracking-wider border-b border-[#404040] sticky top-0 bg-[#252526]">
-              Changed Files ({files.length})
-            </div>
-            {files.map((f, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-3 px-4 py-[7px] text-[14px] hover:bg-white/[0.05]"
-                title={f.path}
-              >
-                <span className={`font-mono font-bold w-[22px] text-center shrink-0 ${statusColor(f.status)}`}>
-                  {f.status}
-                </span>
-                <span className="text-[#d4d4d4] truncate min-w-0">{f.path}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        <ChangedFilesPopover files={files} />
       </div>
     </div>
   );

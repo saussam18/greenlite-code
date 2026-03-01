@@ -284,6 +284,12 @@ export function ReviewMode({ isVisible, cwd, onModeChange, onReviewInfo }: Revie
     );
   };
 
+  const handleResolveAll = () => {
+    persistComments(
+      comments.map((c) => (c.resolved ? c : { ...c, resolved: true }))
+    );
+  };
+
   // Send open comments to Claude via PTY
   const openComments = comments.filter((c) => !c.resolved);
   const resolvedCount = comments.length - openComments.length;
@@ -324,6 +330,8 @@ export function ReviewMode({ isVisible, cwd, onModeChange, onReviewInfo }: Revie
   sendToClaudeRef.current = handleSendToClaude;
   const navigateRef = useRef(navigateToComment);
   navigateRef.current = navigateToComment;
+  const resolveAllRef = useRef(handleResolveAll);
+  resolveAllRef.current = handleResolveAll;
 
   useEffect(() => {
     if (onReviewInfo) {
@@ -332,6 +340,7 @@ export function ReviewMode({ isVisible, cwd, onModeChange, onReviewInfo }: Revie
         resolvedCount,
         onSendToClaude: () => sendToClaudeRef.current(),
         onNavigateToComment: (c) => navigateRef.current(c),
+        onResolveAll: () => resolveAllRef.current(),
       });
     }
   }, [comments, onReviewInfo]);
