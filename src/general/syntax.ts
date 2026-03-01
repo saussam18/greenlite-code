@@ -91,8 +91,8 @@ function buildRules(lang: Exclude<Language, null>): Rule[] {
       [/^[a-zA-Z_$][\w$]*(?=\s*\()/, COLORS.function],
       // Identifiers
       [/^[a-zA-Z_$][\w$]*/, COLORS.default],
-      // Operators and punctuation
-      [/^[{}()\[\];,.:?!&|<>=+\-*/%~^@#]+/, COLORS.punctuation],
+      // Operators and punctuation (/ excluded before * or / to allow comment detection)
+      [/^(?:[{}()\[\];,.:?!&|<>=+\-*%~^@#]|\/(?![/*]))+/, COLORS.punctuation],
       // Whitespace
       [/^\s+/, COLORS.default],
       // Anything else
@@ -199,8 +199,8 @@ function buildRules(lang: Exclude<Language, null>): Rule[] {
       [/^[a-zA-Z_]\w*(?=\s*\()/, COLORS.function],
       // Identifiers
       [/^[a-zA-Z_]\w*/, COLORS.default],
-      // Operators and punctuation
-      [/^[{}()\[\];,.:?!&|<>=+\-*/%~^@#]+/, COLORS.punctuation],
+      // Operators and punctuation (/ excluded before * or / to allow comment detection)
+      [/^(?:[{}()\[\];,.:?!&|<>=+\-*%~^@#]|\/(?![/*]))+/, COLORS.punctuation],
       // Whitespace
       [/^\s+/, COLORS.default],
       // Anything else
@@ -241,8 +241,8 @@ function buildRules(lang: Exclude<Language, null>): Rule[] {
     [/^[a-zA-Z_]\w*(?=\s*\()/, COLORS.function],
     // Identifiers
     [/^[a-zA-Z_]\w*/, COLORS.default],
-    // Operators and punctuation
-    [/^[{}()\[\];,.:?!&|<>=+\-*/%~^@#]+/, COLORS.punctuation],
+    // Operators and punctuation (/ excluded before * or / to allow comment detection)
+    [/^(?:[{}()\[\];,.:?!&|<>=+\-*%~^@#]|\/(?![/*]))+/, COLORS.punctuation],
     // Whitespace
     [/^\s+/, COLORS.default],
     // Anything else
@@ -301,16 +301,55 @@ function getRules(lang: Exclude<Language, null>): Rule[] {
   return rulesCache.get(lang)!;
 }
 
-export function tokenizeLine(line: string, lang: Language): Token[] {
+export function tokenizeLine(
+  line: string,
+  lang: Language,
+  inBlockComment: boolean = false,
+): { tokens: Token[]; inBlockComment: boolean } {
   if (!lang) {
-    return [{ text: line, color: COLORS.default }];
+    return { tokens: [{ text: line, color: COLORS.default }], inBlockComment: false };
   }
+
+  const blockStart = lang === "html" ? "<!--" : lang !== "json" ? "/*" : null;
+  const blockEnd = lang === "html" ? "-->" : lang !== "json" ? "*/" : null;
 
   const rules = getRules(lang);
   const tokens: Token[] = [];
   let remaining = line;
+  let inBlock = inBlockComment;
 
   while (remaining.length > 0) {
+    // Inside a block comment from a previous line — scan for closing token
+    if (inBlock && blockEnd) {
+      const endIdx = remaining.indexOf(blockEnd);
+      if (endIdx >= 0) {
+        tokens.push({ text: remaining.slice(0, endIdx + blockEnd.length), color: COLORS.comment });
+        remaining = remaining.slice(endIdx + blockEnd.length);
+        inBlock = false;
+      } else {
+        tokens.push({ text: remaining, color: COLORS.comment });
+        remaining = "";
+      }
+      continue;
+    }
+
+    // Check for block comment opening
+    if (blockStart && blockEnd && remaining.startsWith(blockStart)) {
+      const endIdx = remaining.indexOf(blockEnd, blockStart.length);
+      if (endIdx >= 0) {
+        // Closes on same line
+        tokens.push({ text: remaining.slice(0, endIdx + blockEnd.length), color: COLORS.comment });
+        remaining = remaining.slice(endIdx + blockEnd.length);
+      } else {
+        // Doesn't close — rest of line is comment, carry state forward
+        tokens.push({ text: remaining, color: COLORS.comment });
+        inBlock = true;
+        remaining = "";
+      }
+      continue;
+    }
+
+    // Regular rule matching
     let matched = false;
     for (const [regex, color] of rules) {
       const m = remaining.match(regex);
@@ -321,6 +360,7 @@ export function tokenizeLine(line: string, lang: Language): Token[] {
         break;
       }
     }
+
     if (!matched) {
       tokens.push({ text: remaining[0], color: COLORS.default });
       remaining = remaining.slice(1);
@@ -337,5 +377,5 @@ export function tokenizeLine(line: string, lang: Language): Token[] {
     }
   }
 
-  return merged;
+  return { tokens: merged, inBlockComment: inBlock };
 }

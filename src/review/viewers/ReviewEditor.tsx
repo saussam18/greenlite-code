@@ -617,19 +617,48 @@ export function ReviewEditor({
     [activePath]
   );
 
-  // Cache tokenization results so selection changes don't re-tokenize every line
-  const tokenCache = useMemo(() => new Map<string, Token[]>(), [lang]);
+  // Pre-compute tokenization for all visible lines with block comment state tracking
+  const preTokenized = useMemo(() => {
+    const result = { old: [] as Token[][], new: [] as Token[][], file: [] as Token[][] };
+    if (!lang) return result;
 
-  const getTokens = (text: string): Token[] => {
-    const cached = tokenCache.get(text);
-    if (cached) return cached;
-    const tokens = tokenizeLine(text, lang);
-    tokenCache.set(text, tokens);
-    return tokens;
-  };
+    if (viewMode === "diff" && diff) {
+      let oldInBlock = false;
+      let newInBlock = false;
+      for (let i = 0; i < diff.left.length; i++) {
+        const leftLine = diff.left[i];
+        if (leftLine.type === "added") {
+          result.old.push([]);
+        } else {
+          const r = tokenizeLine(leftLine.text, lang, oldInBlock);
+          result.old.push(r.tokens);
+          oldInBlock = r.inBlockComment;
+        }
+        const rightLine = diff.right[i];
+        if (rightLine.type === "removed") {
+          result.new.push([]);
+        } else {
+          const r = tokenizeLine(rightLine.text, lang, newInBlock);
+          result.new.push(r.tokens);
+          newInBlock = r.inBlockComment;
+        }
+      }
+    }
 
-  const renderHighlightedLine = (text: string) => {
-    const tokens = getTokens(text);
+    if (viewMode === "file" && fileContent !== null) {
+      const lines = editContent.split("\n");
+      let inBlock = false;
+      for (const line of lines) {
+        const r = tokenizeLine(line, lang, inBlock);
+        result.file.push(r.tokens);
+        inBlock = r.inBlockComment;
+      }
+    }
+
+    return result;
+  }, [lang, viewMode, diff, editContent, fileContent]);
+
+  const renderHighlightedLine = (tokens: Token[]) => {
     return tokens.map((t, i) => (
       <span key={i} style={{ color: t.color }}>
         {t.text}
@@ -796,7 +825,7 @@ export function ReviewEditor({
     );
   };
 
-  const renderCodeLineContent = (side: "old" | "new", line: DiffLine, lineNum: number | undefined, config: CodeLineConfig, isSpacer?: boolean) => {
+  const renderCodeLineContent = (side: "old" | "new", line: DiffLine, lineNum: number | undefined, config: CodeLineConfig, isSpacer?: boolean, tokens?: Token[]) => {
     const lineLength = line.text.length;
     const selHighlight = config.showSelection && lineNum != null ? getLineHighlight(side, lineNum, lineLength) : null;
     const comment = lineNum != null ? findComment(side, lineNum) : undefined;
@@ -839,12 +868,13 @@ export function ReviewEditor({
             style={{ left: `calc(0.5rem + ${selectionEnd.col}ch)` }}
           />
         )}
-        {isSpacer ? " " : line.text ? renderHighlightedLine(line.text) : " "}
+        {isSpacer ? " " : line.text ? renderHighlightedLine(tokens ?? tokenizeLine(line.text, lang).tokens) : " "}
       </span>
     );
   };
 
   const renderDiffLine = (side: "old" | "new", line: DiffLine, i: number, isDiffPane: boolean) => {
+    const tokens = side === "old" ? preTokenized.old[i] : preTokenized.new[i];
     const lineNum = side === "old" ? line.oldLineNum : line.newLineNum;
     const isSpacer = isDiffPane && (
       (side === "old" && line.type === "added") ||
@@ -911,7 +941,7 @@ export function ReviewEditor({
           }}
         >
           {renderGutterCell(side, lineNum)}
-          {renderCodeLineContent(side, line, lineNum, { showSelection: true, showDiffColors: isDiffPane }, isSpacer)}
+          {renderCodeLineContent(side, line, lineNum, { showSelection: true, showDiffColors: isDiffPane }, isSpacer, tokens)}
         </div>
         {lineNum != null && renderInlineThread(side, lineNum)}
       </div>
@@ -1086,7 +1116,7 @@ export function ReviewEditor({
                     key={i}
                     className="h-[21px] leading-[21px] whitespace-pre flex"
                   >
-                    {renderCodeLineContent("old", { type: "unchanged", text: line, oldLineNum: i + 1 }, i + 1, { showSelection: false, showDiffColors: false })}
+                    {renderCodeLineContent("old", { type: "unchanged", text: line, oldLineNum: i + 1 }, i + 1, { showSelection: false, showDiffColors: false }, false, preTokenized.file[i])}
                   </div>
                 ))}
               </code>
