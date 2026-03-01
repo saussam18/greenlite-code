@@ -313,7 +313,7 @@ export function ReviewEditor({
     onAddComment(createComment(
       fileCommentText.trim(),
       relativePath,
-      "new",
+      "old",
       startLine,
       endLine,
       0,
@@ -506,7 +506,7 @@ export function ReviewEditor({
         const lower = lines[i].toLowerCase();
         let idx = 0;
         while ((idx = lower.indexOf(query, idx)) !== -1) {
-          matches.push({ line: i + 1, startCol: idx, endCol: idx + query.length, side: "new" });
+          matches.push({ line: i + 1, startCol: idx, endCol: idx + query.length, side: "old" });
           idx += 1;
         }
       }
@@ -1069,7 +1069,7 @@ export function ReviewEditor({
           >
             {fileLines.map((_, i) => (
               <div key={i}>
-                {renderGutterCell("new", i + 1, { fileView: true, onGutterClick: gutterClickHandler })}
+                {renderGutterCell("old", i + 1, { fileView: true, onGutterClick: gutterClickHandler })}
               </div>
             ))}
           </div>
@@ -1086,7 +1086,7 @@ export function ReviewEditor({
                     key={i}
                     className="h-[21px] leading-[21px] whitespace-pre flex"
                   >
-                    {renderCodeLineContent("new", { type: "unchanged", text: line, newLineNum: i + 1 }, i + 1, { showSelection: false, showDiffColors: false })}
+                    {renderCodeLineContent("old", { type: "unchanged", text: line, oldLineNum: i + 1 }, i + 1, { showSelection: false, showDiffColors: false })}
                   </div>
                 ))}
               </code>
