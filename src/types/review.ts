@@ -39,3 +39,13 @@ export interface CommentsData {
   commitHash: string;
   comments: Comment[];
 }
+
+export interface GutterConfig {
+  fileView?: boolean;
+  onGutterClick?: (lineNum: number, shiftKey: boolean) => void;
+}
+
+export interface CodeLineConfig {
+  showSelection: boolean;
+  showDiffColors: boolean;
+}

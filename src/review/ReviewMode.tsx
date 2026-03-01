@@ -20,7 +20,6 @@ export function ReviewMode({ isVisible, cwd, onModeChange, onReviewInfo }: Revie
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
   const [diff, setDiff] = useState<{ left: DiffLine[]; right: DiffLine[] } | null>(null);
-  const [plainContent, setPlainContent] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [storedCommitHash, setStoredCommitHash] = useState("");
 
@@ -133,28 +132,24 @@ export function ReviewMode({ isVisible, cwd, onModeChange, onReviewInfo }: Revie
     };
   }, [isVisible, fetchFiles, checkCommitHash]);
 
-  // Load diff or plain content when file selected
+  // Load diff when file selected — all statuses go through computeDiff
   useEffect(() => {
     if (!selectedFile) {
       setDiff(null);
-      setPlainContent(null);
       return;
     }
-    if (selectedStatus === "A" || selectedStatus === "D") {
-      setDiff(null);
-      invoke<FileDiff>("git_file_diff", { repoPath: cwd, filePath: selectedFile })
-        .then((result) => {
-          setPlainContent(selectedStatus === "A" ? result.new_content : result.old_content);
-        })
-        .catch(() => setPlainContent(null));
-    } else {
-      setPlainContent(null);
-      invoke<FileDiff>("git_file_diff", { repoPath: cwd, filePath: selectedFile })
-        .then((result) => {
+    setDiff(null);
+    invoke<FileDiff>("git_file_diff", { repoPath: cwd, filePath: selectedFile })
+      .then((result) => {
+        if (selectedStatus === "A") {
+          setDiff(computeDiff("", result.new_content));
+        } else if (selectedStatus === "D") {
+          setDiff(computeDiff(result.old_content, ""));
+        } else {
           setDiff(computeDiff(result.old_content, result.new_content));
-        })
-        .catch(() => setDiff(null));
-    }
+        }
+      })
+      .catch(() => setDiff(null));
   }, [selectedFile, selectedStatus, cwd]);
 
   const clearSelection = () => {
@@ -409,9 +404,7 @@ export function ReviewMode({ isVisible, cwd, onModeChange, onReviewInfo }: Revie
           viewMode={viewMode}
           browseSelectedFile={browseSelectedFile}
           selectedFile={selectedFile}
-          selectedStatus={selectedStatus}
           diff={diff}
-          plainContent={plainContent}
           comments={comments}
           onAddComment={handleAddComment}
           onDeleteComment={handleDeleteComment}

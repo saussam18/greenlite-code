@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef, useMemo, type MouseEvent as ReactMouseEvent } from "react";
 import { readFile, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { detectLanguage, tokenizeLine, type Language, type Token } from "../../general/syntax";
-import type { Comment, DiffLine, SelectionAnchor } from "../../types/review";
+import type { Comment, DiffLine, SelectionAnchor, GutterConfig, CodeLineConfig } from "../../types/review";
 import { CommentThread } from "../comments/CommentThread";
 import { CommentCard } from "../comments/CommentCard";
 import { MessageSquarePlus, MessageSquare, ChevronUp, ChevronDown, X } from "lucide-react";
 import { FileEditorHeader } from "./FileEditorHeader";
-import { FileCommentPanel } from "../comments/FileCommentPanel";
 import { ImageViewer } from "./ImageViewer";
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp"]);
@@ -42,9 +41,7 @@ interface ReviewEditorProps {
   viewMode: "diff" | "file";
   browseSelectedFile: string | null;
   selectedFile: string | null;
-  selectedStatus: string | null;
   diff: { left: DiffLine[]; right: DiffLine[] } | null;
-  plainContent: string | null;
   comments: Comment[];
   onAddComment: (comment: Comment) => void;
   onDeleteComment: (id: string) => void;
@@ -60,9 +57,7 @@ export function ReviewEditor({
   viewMode,
   browseSelectedFile,
   selectedFile,
-  selectedStatus,
   diff,
-  plainContent,
   comments,
   onAddComment,
   onDeleteComment,
@@ -123,6 +118,10 @@ export function ReviewEditor({
   const [currentMatch, setCurrentMatch] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Brief suppression of comment popover to prevent it appearing between double-click mousedowns
+  const [popoverSuppressed, setPopoverSuppressed] = useState(false);
+  const popoverSuppressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Visual row index of selection end (for popover positioning in diff view)
   const [selEndRow, setSelEndRow] = useState<number | null>(null);
 
@@ -144,6 +143,35 @@ export function ReviewEditor({
     return Math.max(0, Math.min(col, lineText.length));
   };
 
+  const getWordBoundsAt = (text: string, col: number): { start: number; end: number } => {
+    const wordChar = /[\w$]/;
+    if (col >= text.length || !wordChar.test(text[col])) {
+      // Clicked on non-word char — try one to the left
+      if (col > 0 && wordChar.test(text[col - 1])) {
+        col = col - 1;
+      } else {
+        return { start: col, end: col };
+      }
+    }
+    let start = col;
+    let end = col;
+    while (start > 0 && wordChar.test(text[start - 1])) start--;
+    while (end < text.length && wordChar.test(text[end])) end++;
+    return { start, end };
+  };
+
+  const handleLineDoubleClick = (side: "old" | "new", lineNum: number, col: number, row: number, lineText: string) => {
+    const { start, end } = getWordBoundsAt(lineText, col);
+    if (start === end) return;
+    setIsSelecting(false);
+    setSelectingSide(side);
+    setSelectionStart({ line: lineNum, col: start });
+    setSelectionEnd({ line: lineNum, col: end });
+    setSelEndRow(row);
+    setShowCommentInput(false);
+    setCommentInput("");
+  };
+
   const handleLineMouseDown = (side: "old" | "new", lineNum: number, col: number, row: number) => {
     setIsSelecting(true);
     setSelectingSide(side);
@@ -152,6 +180,10 @@ export function ReviewEditor({
     setSelEndRow(row);
     setShowCommentInput(false);
     setCommentInput("");
+    // Suppress popover briefly to prevent it appearing between double-click mousedowns
+    setPopoverSuppressed(true);
+    if (popoverSuppressTimer.current) clearTimeout(popoverSuppressTimer.current);
+    popoverSuppressTimer.current = setTimeout(() => setPopoverSuppressed(false), 300);
   };
 
   const handleLineMouseMove = (side: "old" | "new", lineNum: number, col: number, row: number) => {
@@ -385,8 +417,9 @@ export function ReviewEditor({
         }
         return;
       }
-      // Show read-only toast when typing in diff view
-      if (viewMode === "diff" && selectingSide && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.length === 1) {
+      // Show read-only toast when typing in diff view (but not when focused on a comment input)
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (viewMode === "diff" && selectingSide && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.length === 1 && tag !== "TEXTAREA" && tag !== "INPUT") {
         if (readOnlyTimer.current) clearTimeout(readOnlyTimer.current);
         setReadOnlyToast(true);
         readOnlyTimer.current = setTimeout(() => setReadOnlyToast(false), 2000);
@@ -477,17 +510,6 @@ export function ReviewEditor({
           idx += 1;
         }
       }
-    } else if (plainContent !== null) {
-      const side: "old" | "new" = selectedStatus === "D" ? "old" : "new";
-      const lines = plainContent.split("\n");
-      for (let i = 0; i < lines.length; i++) {
-        const lower = lines[i].toLowerCase();
-        let idx = 0;
-        while ((idx = lower.indexOf(query, idx)) !== -1) {
-          matches.push({ line: i + 1, startCol: idx, endCol: idx + query.length, side });
-          idx += 1;
-        }
-      }
     } else if (diff) {
       // Interleave matches by visual row so navigation goes top-to-bottom across both panes
       for (let ri = 0; ri < diff.left.length; ri++) {
@@ -515,7 +537,7 @@ export function ReviewEditor({
     }
 
     return matches;
-  }, [searchQuery, searchOpen, viewMode, editContent, fileContent, diff, plainContent, selectedStatus]);
+  }, [searchQuery, searchOpen, viewMode, editContent, fileContent, diff]);
 
   // Clamp currentMatch when matches change
   useEffect(() => {
@@ -653,6 +675,8 @@ export function ReviewEditor({
 
   const renderCommentPopover = (side: "old" | "new") => {
     if (selectingSide !== side || selMin === null || selMax === null || selEndRow === null || isSelecting || !selNorm || !selectionEnd || !selectionStart) return null;
+    // Suppress popover briefly after mousedown to prevent it appearing between double-click events
+    if (popoverSuppressed && !showCommentInput) return null;
     // Place button on the side opposite to the highlight
     const endAfterStart = selectionEnd.line > selectionStart.line ||
       (selectionEnd.line === selectionStart.line && selectionEnd.col >= selectionStart.col);
@@ -710,6 +734,116 @@ export function ReviewEditor({
     );
   };
 
+  const renderGutterCell = (side: "old" | "new", lineNum: number | undefined, config?: GutterConfig) => {
+    const comment = lineNum != null ? findComment(side, lineNum) : undefined;
+    const gutterDotColor = comment
+      ? comment.resolved ? "text-[#666]" : "text-[#4e9a06]"
+      : "";
+    const gutterDotHover = comment
+      ? comment.resolved ? "hover:text-[#999]" : "hover:text-[#73d216]"
+      : "";
+
+    if (config?.fileView) {
+      const isInRange = fileCommentStartLine !== null && fileCommentEndLine !== null && lineNum != null &&
+        lineNum >= Math.min(fileCommentStartLine, fileCommentEndLine) &&
+        lineNum <= Math.max(fileCommentStartLine, fileCommentEndLine);
+      return (
+        <div
+          className={`group inline-flex items-center justify-end w-[50px] min-w-[50px] h-[21px] leading-[21px] pr-2 font-mono text-[13px] text-[#555] shrink-0 ${
+            isInRange ? "bg-[rgba(78,154,6,0.12)]" : ""
+          }`}
+        >
+          {comment ? (
+            <span
+              className={`w-[16px] flex items-center justify-center shrink-0 cursor-pointer ${
+                comment.resolved ? "text-[#666] hover:text-[#999]" : "text-[#4e9a06] hover:text-[#73d216]"
+              }`}
+              onClick={() => handleGutterDotClick({ stopPropagation: () => {} } as React.MouseEvent, comment)}
+              title={collapsedThreads.has(comment.id) ? comment.text : "Click to collapse"}
+            >
+              <MessageSquare size={11} />
+            </span>
+          ) : (
+            <span
+              className="w-[16px] flex items-center justify-center opacity-0 group-hover:opacity-60 hover:!opacity-100 cursor-pointer hover:!text-[#4e9a06] shrink-0"
+              onClick={(e) => {
+                if (lineNum != null && config?.onGutterClick) {
+                  config.onGutterClick(lineNum, e.shiftKey);
+                }
+              }}
+            >
+              <MessageSquarePlus size={11} />
+            </span>
+          )}
+          <span className="flex-1 text-right">{lineNum ?? ""}</span>
+        </div>
+      );
+    }
+
+    return (
+      <span className="inline-flex items-center justify-end w-[50px] min-w-[50px] pr-2 font-mono text-[13px] text-[#555] text-right shrink-0 gap-1">
+        {comment ? (
+          <span
+            className={`${gutterDotColor} cursor-pointer leading-none shrink-0 ${gutterDotHover}`}
+            onClick={(e) => handleGutterDotClick(e, comment)}
+            title={comment.text}
+          >
+            <MessageSquare size={12} />
+          </span>
+        ) : null}
+        {lineNum ?? ""}
+      </span>
+    );
+  };
+
+  const renderCodeLineContent = (side: "old" | "new", line: DiffLine, lineNum: number | undefined, config: CodeLineConfig, isSpacer?: boolean) => {
+    const lineLength = line.text.length;
+    const selHighlight = config.showSelection && lineNum != null ? getLineHighlight(side, lineNum, lineLength) : null;
+    const comment = lineNum != null ? findComment(side, lineNum) : undefined;
+    const commentHL = comment ? getCommentHighlight(side, lineNum!, lineLength, comment) : null;
+
+    const isFullLineSelection = selHighlight && selHighlight.startCol === 0 && selHighlight.endCol >= lineLength;
+    const isFullLineComment = commentHL && commentHL.startCol === 0 && commentHL.endCol >= lineLength;
+
+    return (
+      <span
+        data-code-span
+        className={`flex-1 pl-2 font-mono text-[13px] whitespace-pre relative ${
+          isSpacer ? "text-transparent" : ""
+        }`}
+      >
+        {selHighlight && !isFullLineSelection && renderHighlightOverlay(selHighlight, "rgba(38,79,120,0.4)", lineLength)}
+        {!selHighlight && commentHL && !isFullLineComment && renderHighlightOverlay(
+          commentHL,
+          comment!.resolved ? "rgba(128,128,128,0.05)" : "rgba(78,154,6,0.08)",
+          lineLength
+        )}
+        {/* Search match highlights */}
+        {searchOpen && searchQuery && lineNum != null && searchMatches.map((m, mi) => (
+          m.side === side && m.line === lineNum ? (
+            <span
+              key={`s${mi}`}
+              className="absolute top-0 bottom-0 pointer-events-none"
+              style={{
+                left: `calc(0.5rem + ${m.startCol}ch)`,
+                width: `${m.endCol - m.startCol}ch`,
+                backgroundColor: mi === currentMatch ? "rgba(255,200,0,0.5)" : "rgba(255,200,0,0.3)",
+              }}
+            />
+          ) : null
+        ))}
+        {/* Blinking cursor at selection end */}
+        {config.showSelection && selectingSide === side && selectionEnd && selectionEnd.line === lineNum && !isSelecting && (
+          <span
+            className="absolute top-0 bottom-0 w-[1.5px] bg-[#d4d4d4] animate-[blink_1s_step-end_infinite] pointer-events-none z-10"
+            style={{ left: `calc(0.5rem + ${selectionEnd.col}ch)` }}
+          />
+        )}
+        {isSpacer ? " " : line.text ? renderHighlightedLine(line.text) : " "}
+      </span>
+    );
+  };
+
   const renderDiffLine = (side: "old" | "new", line: DiffLine, i: number, isDiffPane: boolean) => {
     const lineNum = side === "old" ? line.oldLineNum : line.newLineNum;
     const isSpacer = isDiffPane && (
@@ -733,13 +867,6 @@ export function ReviewEditor({
     else if (isRemoved) bgClass = "bg-[rgba(244,71,71,0.18)]";
     else if (isAdded) bgClass = "bg-[rgba(106,153,85,0.18)]";
 
-    const gutterDotColor = comment
-      ? comment.resolved ? "text-[#666]" : "text-[#4e9a06]"
-      : "";
-    const gutterDotHover = comment
-      ? comment.resolved ? "hover:text-[#999]" : "hover:text-[#73d216]"
-      : "";
-
     const lineDataAttrs: Record<string, string> = {};
     if (lineNum != null) lineDataAttrs[`data-line-${side}`] = String(lineNum);
 
@@ -756,80 +883,37 @@ export function ReviewEditor({
             const col = codeSpan ? getColFromEvent(e, codeSpan, line.text) : 0;
             handleLineMouseDown(side, lineNum, col, i);
           }}
+          onDoubleClick={(e) => {
+            if (lineNum == null) return;
+            const codeSpan = e.currentTarget.querySelector('[data-code-span]') as HTMLElement | null;
+            const col = codeSpan ? getColFromEvent(e, codeSpan, line.text) : 0;
+            handleLineDoubleClick(side, lineNum, col, i, line.text);
+          }}
           onMouseMove={(e) => {
             if (lineNum == null) return;
             const codeSpan = e.currentTarget.querySelector('[data-code-span]') as HTMLElement | null;
             const col = codeSpan ? getColFromEvent(e, codeSpan, line.text) : 0;
             handleLineMouseMove(side, lineNum, col, i);
           }}
+          onContextMenu={(e) => {
+            if (lineNum == null) return;
+            e.preventDefault();
+            const codeSpan = e.currentTarget.querySelector('[data-code-span]') as HTMLElement | null;
+            const col = codeSpan ? getColFromEvent(e, codeSpan, line.text) : 0;
+            // If no existing selection, create a point selection at the right-click position
+            if (!selNorm || selectingSide !== side) {
+              setSelectingSide(side);
+              setSelectionStart({ line: lineNum, col });
+              setSelectionEnd({ line: lineNum, col });
+              setSelEndRow(i);
+            }
+            setShowCommentInput(true);
+          }}
         >
-          <span className="inline-flex items-center justify-end w-[50px] min-w-[50px] pr-2 font-mono text-[13px] text-[#555] text-right shrink-0 gap-1">
-            {comment ? (
-              <span
-                className={`${gutterDotColor} cursor-pointer leading-none shrink-0 ${gutterDotHover}`}
-                onClick={(e) => handleGutterDotClick(e, comment)}
-                title={comment.text}
-              >
-                <MessageSquare size={12} />
-              </span>
-            ) : null}
-            {lineNum ?? ""}
-          </span>
-          <span
-            data-code-span
-            className={`flex-1 pl-2 font-mono text-[13px] whitespace-pre relative ${
-              isSpacer ? "text-transparent" : ""
-            }`}
-          >
-            {selHighlight && !isFullLineSelection && renderHighlightOverlay(selHighlight, "rgba(38,79,120,0.4)", lineLength)}
-            {!selHighlight && commentHL && !isFullLineComment && renderHighlightOverlay(
-              commentHL,
-              comment!.resolved ? "rgba(128,128,128,0.05)" : "rgba(78,154,6,0.08)",
-              lineLength
-            )}
-            {/* Search match highlights */}
-            {searchOpen && searchQuery && lineNum != null && searchMatches.map((m, mi) => (
-              m.side === side && m.line === lineNum ? (
-                <span
-                  key={`s${mi}`}
-                  className="absolute top-0 bottom-0 pointer-events-none"
-                  style={{
-                    left: `calc(0.5rem + ${m.startCol}ch)`,
-                    width: `${m.endCol - m.startCol}ch`,
-                    backgroundColor: mi === currentMatch ? "rgba(255,200,0,0.5)" : "rgba(255,200,0,0.3)",
-                  }}
-                />
-              ) : null
-            ))}
-            {/* Blinking cursor at selection end */}
-            {selectingSide === side && selectionEnd && selectionEnd.line === lineNum && !isSelecting && (
-              <span
-                className="absolute top-0 bottom-0 w-[1.5px] bg-[#d4d4d4] animate-[blink_1s_step-end_infinite] pointer-events-none z-10"
-                style={{ left: `calc(0.5rem + ${selectionEnd.col}ch)` }}
-              />
-            )}
-            {isSpacer ? " " : line.text ? renderHighlightedLine(line.text) : " "}
-          </span>
+          {renderGutterCell(side, lineNum)}
+          {renderCodeLineContent(side, line, lineNum, { showSelection: true, showDiffColors: isDiffPane }, isSpacer)}
         </div>
         {lineNum != null && renderInlineThread(side, lineNum)}
-      </div>
-    );
-  };
-
-  const renderPlainPane = (label: string, content: string, side: "old" | "new") => {
-    const lines = content.split("\n");
-    return (
-      <div ref={diffContainerRef} className="flex-1 overflow-auto min-w-0 relative bg-[#1e1e1e]">
-        {searchOpen && renderSearchBar()}
-        <div className="sticky top-0 z-10 px-3 py-1 bg-[#2d2d2d] border-b border-[#404040] text-[11px] text-[#888] font-semibold uppercase tracking-wider">
-          {label}
-        </div>
-        <pre className="m-0 p-0 bg-transparent">
-          <code className="block w-max min-w-full">
-            {lines.map((line, i) => renderDiffLine(side, { type: "unchanged", text: line, ...(side === "old" ? { oldLineNum: i + 1 } : { newLineNum: i + 1 }) }, i, false))}
-          </code>
-        </pre>
-        {renderCommentPopover(side)}
       </div>
     );
   };
@@ -947,6 +1031,16 @@ export function ReviewEditor({
       const fileLines = editContent.split("\n");
       const visibleComments = fileComments.filter((c) => !collapsedThreads.has(c.id));
 
+      const gutterClickHandler = (lineNum: number, shiftKey: boolean) => {
+        if (shiftKey && fileCommentStartLine !== null) {
+          setFileCommentEndLine(lineNum);
+        } else {
+          setFileCommentStartLine(lineNum);
+          setFileCommentEndLine(lineNum);
+          setFileCommentText("");
+        }
+      };
+
       const syncScroll = () => {
         if (!editorRef.current) return;
         const { scrollTop, scrollLeft } = editorRef.current;
@@ -973,53 +1067,15 @@ export function ReviewEditor({
             ref={lineNumRef}
             className="w-[50px] min-w-[50px] overflow-hidden bg-[#1e1e1e] shrink-0 select-none"
           >
-            {fileLines.map((_, i) => {
-              const lineNum = i + 1;
-              const comment = findComment("new", lineNum);
-              const isInRange = fileCommentStartLine !== null && fileCommentEndLine !== null &&
-                lineNum >= Math.min(fileCommentStartLine, fileCommentEndLine) &&
-                lineNum <= Math.max(fileCommentStartLine, fileCommentEndLine);
-              return (
-                <div
-                  key={i}
-                  className={`group h-[21px] leading-[21px] pr-2 font-mono text-[13px] text-[#555] flex items-center ${
-                    isInRange ? "bg-[rgba(78,154,6,0.12)]" : ""
-                  }`}
-                >
-                  {comment ? (
-                    <span
-                      className={`w-[16px] flex items-center justify-center shrink-0 cursor-pointer ${
-                        comment.resolved ? "text-[#666] hover:text-[#999]" : "text-[#4e9a06] hover:text-[#73d216]"
-                      }`}
-                      onClick={() => handleGutterDotClick({ stopPropagation: () => {} } as React.MouseEvent, comment)}
-                      title={collapsedThreads.has(comment.id) ? comment.text : "Click to collapse"}
-                    >
-                      <MessageSquare size={11} />
-                    </span>
-                  ) : (
-                    <span
-                      className="w-[16px] flex items-center justify-center opacity-0 group-hover:opacity-60 hover:!opacity-100 cursor-pointer hover:!text-[#4e9a06] shrink-0"
-                      onClick={(e) => {
-                        if (e.shiftKey && fileCommentStartLine !== null) {
-                          setFileCommentEndLine(lineNum);
-                        } else {
-                          setFileCommentStartLine(lineNum);
-                          setFileCommentEndLine(lineNum);
-                          setFileCommentText("");
-                        }
-                      }}
-                    >
-                      <MessageSquarePlus size={11} />
-                    </span>
-                  )}
-                  <span className="flex-1 text-right">{lineNum}</span>
-                </div>
-              );
-            })}
+            {fileLines.map((_, i) => (
+              <div key={i}>
+                {renderGutterCell("new", i + 1, { fileView: true, onGutterClick: gutterClickHandler })}
+              </div>
+            ))}
           </div>
           {/* Code area with syntax highlight + textarea + comment overlays */}
           <div className="flex-1 relative overflow-hidden min-w-0">
-            {/* Syntax highlight layer */}
+            {/* Syntax highlight + comment/search overlay layer */}
             <pre
               ref={highlightRef}
               className="absolute inset-0 m-0 p-0 bg-transparent overflow-hidden pointer-events-none"
@@ -1028,45 +1084,13 @@ export function ReviewEditor({
                 {fileLines.map((line, i) => (
                   <div
                     key={i}
-                    className="h-[21px] leading-[21px] pl-2 pr-2 font-mono text-[13px] whitespace-pre"
+                    className="h-[21px] leading-[21px] whitespace-pre flex"
                   >
-                    {line ? renderHighlightedLine(line) : " "}
+                    {renderCodeLineContent("new", { type: "unchanged", text: line, newLineNum: i + 1 }, i + 1, { showSelection: false, showDiffColors: false })}
                   </div>
                 ))}
               </code>
             </pre>
-            {/* Search highlight layer */}
-            {searchOpen && searchQuery && (
-              <div
-                ref={searchOverlayRef}
-                className="absolute inset-0 overflow-hidden pointer-events-none z-[5]"
-              >
-                <code className="block">
-                  {fileLines.map((_, i) => {
-                    const lineNum = i + 1;
-                    const hasMatches = searchMatches.some((m) => m.line === lineNum);
-                    if (!hasMatches) return <div key={i} className="h-[21px]" />;
-                    return (
-                      <div key={i} className="h-[21px] leading-[21px] pl-2 pr-2 relative">
-                        {searchMatches.map((m, mi) =>
-                          m.line === lineNum ? (
-                            <span
-                              key={mi}
-                              className="absolute top-0 bottom-0 pointer-events-none"
-                              style={{
-                                left: `calc(0.5rem + ${m.startCol}ch)`,
-                                width: `${m.endCol - m.startCol}ch`,
-                                backgroundColor: mi === currentMatch ? "rgba(255,200,0,0.5)" : "rgba(255,200,0,0.3)",
-                              }}
-                            />
-                          ) : null
-                        )}
-                      </div>
-                    );
-                  })}
-                </code>
-              </div>
-            )}
             {/* Textarea for editing */}
             <textarea
               ref={editorRef}
@@ -1104,6 +1128,53 @@ export function ReviewEditor({
                     />
                   </div>
                 ))}
+                {/* Inline comment creation popover */}
+                {fileCommentStartLine !== null && fileCommentEndLine !== null && (
+                  <div
+                    className="absolute left-0 pointer-events-auto mx-1 z-20 max-w-[400px]"
+                    style={{ top: `${Math.max(fileCommentStartLine, fileCommentEndLine) * 21}px` }}
+                  >
+                    <div className="bg-[#2d2d30] border border-[#4e9a06] rounded-md p-2 shadow-[0_4px_16px_rgba(0,0,0,0.4)]">
+                      <div className="text-[11px] text-[#888] mb-1.5">
+                        {fileCommentStartLine === fileCommentEndLine
+                          ? `Comment on line ${fileCommentStartLine}`
+                          : `Comment on lines ${Math.min(fileCommentStartLine, fileCommentEndLine)}–${Math.max(fileCommentStartLine, fileCommentEndLine)}`}
+                        {fileCommentStartLine === fileCommentEndLine && (
+                          <span className="text-[#555] ml-2">Shift+click another line for a range</span>
+                        )}
+                      </div>
+                      <textarea
+                        className="w-full min-h-[60px] px-2 py-1.5 border border-[#555] rounded bg-[#1e1e1e] text-[#d4d4d4] font-[inherit] text-[13px] resize-y outline-none focus:border-[#4e9a06]"
+                        placeholder="Add a comment..."
+                        value={fileCommentText}
+                        onChange={(e) => setFileCommentText(e.target.value)}
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleFileCommentSubmit();
+                          if (e.key === "Escape") closeFileComment();
+                        }}
+                      />
+                      <div className="flex items-center justify-between mt-1.5">
+                        <span className="text-[10px] text-[#555]">Cmd+Enter to submit</span>
+                        <div className="flex gap-1.5">
+                          <button
+                            className="px-3 py-1 border border-[#555] rounded bg-[#3c3c3c] text-[#d4d4d4] cursor-pointer text-xs hover:bg-[#4a4a4a]"
+                            onClick={closeFileComment}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            className="px-3 py-1 border border-[#4e9a06] rounded bg-[#2e6b30] text-[#e0e0e0] cursor-pointer text-xs hover:bg-[#3a8a3c] disabled:opacity-40 disabled:cursor-default"
+                            onClick={handleFileCommentSubmit}
+                            disabled={!fileCommentText.trim()}
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1191,25 +1262,7 @@ export function ReviewEditor({
             isImage={isImageFile(browseSelectedFile)}
           />
           {renderFileEditorBody()}
-          {fileCommentStartLine !== null && fileCommentEndLine !== null && (
-            <FileCommentPanel
-              startLine={fileCommentStartLine}
-              endLine={fileCommentEndLine}
-              text={fileCommentText}
-              onTextChange={setFileCommentText}
-              onSubmit={handleFileCommentSubmit}
-              onCancel={closeFileComment}
-            />
-          )}
         </div>
-      );
-    }
-
-    if (plainContent !== null) {
-      return renderPlainPane(
-        selectedStatus === "D" ? "Deleted" : "Added",
-        plainContent,
-        selectedStatus === "D" ? "old" : "new"
       );
     }
 
