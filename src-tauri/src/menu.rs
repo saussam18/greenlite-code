@@ -83,7 +83,7 @@ pub fn create_new_window(app: &AppHandle) {
     let label = format!("main-{}", count);
 
     let result = WebviewWindowBuilder::new(app, &label, WebviewUrl::default())
-        .title("greenlite-code")
+        .title("Greenlite Code")
         .inner_size(800.0, 600.0)
         .maximized(true)
         .build();
