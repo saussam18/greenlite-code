@@ -90,8 +90,11 @@ pub fn git_file_diff(repo_path: String, file_path: String) -> Result<FileDiff, S
     let old_content = git_cmd(&repo_path, &["show", &format!("HEAD:{}", file_path)])
         .unwrap_or_default();
 
-    // Read the working-tree version
-    let full_path = std::path::Path::new(&repo_path).join(&file_path);
+    // Resolve the actual repo root — git status paths are relative to it,
+    // which may differ from repo_path when the user opened a subdirectory.
+    let root = git_cmd(&repo_path, &["rev-parse", "--show-toplevel"])
+        .unwrap_or_else(|_| repo_path.clone());
+    let full_path = std::path::Path::new(&root).join(&file_path);
     let new_content = std::fs::read_to_string(&full_path).unwrap_or_default();
 
     Ok(FileDiff {
